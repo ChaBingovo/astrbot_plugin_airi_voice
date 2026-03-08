@@ -1,0 +1,12 @@
+{
+  "extra_voices": {
+    "type": "array",
+    "title": "额外语音文件（网页上传）",
+    "description": "在这里上传 mp3/wav 等文件，会自动加入可用列表。文件名即关键词。",
+    "items": {
+      "type": "file",
+      "accept": ".mp3,.wav,.ogg,.silk,.amr"
+    },
+    "default": []
+  }
+}
