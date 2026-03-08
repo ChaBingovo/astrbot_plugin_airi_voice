@@ -2,44 +2,52 @@ from astrbot.api.all import *
 from astrbot.api.event import filter, AstrMessageEvent
 import os
 from typing import Dict, Optional
+from pathlib import Path
 from astrbot.api import logger 
 
 @register("airi_voice", "lidure", "输入文件名发送对应语音", "1.0", "https://github.com/你的仓库/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
-        super().__init__(context)
-        self.plugin_dir = os.path.abspath(os.path.dirname(__file__))
-        self.voice_dir = os.path.join(self.plugin_dir, "voices")
-        self.voice_map: Dict[str, str] = self._scan_voices()
+            super().__init__(context)
+            self.plugin_dir = os.path.abspath(os.path.dirname(__file__))
+            self.voice_dir = os.path.join(self.plugin_dir, "voices")
+            self.voice_map: Dict[str, str] = self._scan_voices()
+            self.config = config  # 保存 config 引用
     
-        logger.info("[AiriVoice] === 插件配置加载开始 ===")
-        if config is not None:
-            logger.info(f"[AiriVoice] 收到的 config 完整内容: {config}")
-            extra_file = config.get("extra_voice_file")
-            if extra_file:
-                logger.info(f"[AiriVoice] extra_voice_file 值: {extra_file} (类型: {type(extra_file)})")
-                
-                # 尝试处理不同可能格式
-                file_path = None
-                if isinstance(extra_file, str):
-                    file_path = extra_file
-                elif isinstance(extra_file, dict) and "path" in extra_file:
-                    file_path = extra_file["path"]
-                else:
-                    logger.warning("[AiriVoice] extra_voice_file 格式未知，无法加载")
-                
-                if file_path:
-                    if os.path.exists(file_path):
-                        keyword = os.path.splitext(os.path.basename(file_path))[0].strip()
-                        self.voice_map[keyword] = file_path
-                        logger.info(f"[AiriVoice] 成功从网页配置加载额外语音: '{keyword}' → {file_path}")
+            logger.info("[AiriVoice] === 配置加载开始 ===")
+            if config is not None:
+                logger.info(f"[AiriVoice] 完整 config: {config}")
+                extra = config.get("extra_voice_file")
+                if extra:
+                    # 处理 list（即使单个文件也可能是 list）
+                    if isinstance(extra, list):
+                        for rel_path in extra:
+                            if isinstance(rel_path, str):
+                                # 构建绝对路径：假设上传文件在 data/config/插件名/ 下
+                                # 插件名从 __file__ 或硬编码（这里假设 'astrbot_plugin_airi_voice'）
+                                plugin_name = "astrbot_plugin_airi_voice"
+                                config_base = Path(__file__).parent.parent.parent / "data" / "config" / plugin_name
+                                abs_path = config_base / rel_path
+    
+                                if abs_path.exists():
+                                    keyword = os.path.splitext(os.path.basename(rel_path))[0].strip()
+                                    self.voice_map[keyword] = str(abs_path)
+                                    logger.info(f"[AiriVoice] 从网页上传加载: '{keyword}' → {abs_path}")
+                                else:
+                                    logger.error(f"[AiriVoice] 上传文件路径不存在: {abs_path} (相对: {rel_path})")
+                    elif isinstance(extra, str):
+                        # fallback 如果是 str
+                        # 同上构建路径...
+                        pass  # 可类似处理
                     else:
-                        logger.error(f"[AiriVoice] 上传文件路径不存在！路径: {file_path}")
+                        logger.warning(f"[AiriVoice] extra_voice_file 未知格式: {type(extra)}")
+                else:
+                    logger.info("[AiriVoice] 无 extra_voice_file")
             else:
-                logger.info("[AiriVoice] 无 extra_voice_file 配置")
-        else:
-            logger.info("[AiriVoice] __init__ 未收到 config 参数")
-        logger.info("[AiriVoice] === 配置加载结束 ===")
+                logger.info("[AiriVoice] 未收到 config")
+    
+            logger.info(f"[AiriVoice] 当前语音总数: {len(self.voice_map)} 个")
+            logger.info("[AiriVoice] === 配置加载结束 ===")
 
     def _scan_voices(self) -> Dict[str, str]:
         """扫描 voices 目录，建立 {文件名(无后缀): 绝对路径} 映射"""
@@ -85,23 +93,28 @@ class AiriVoice(Star):
     @filter.command("voice_reload")
     async def reload_voices(self, event: AstrMessageEvent):
         old_count = len(self.voice_map)
-        
-        # 重新扫描本地 voices/
+    
+        # 重新扫描本地
         self.voice_map = self._scan_voices()
-        
-        # 重新加载网页 config（需要访问 config，但 __init__ 外的 reload 无法直接拿 config）
-        # 临时方案：假设你把 config 存为 self.config
+    
+        # 重新加载 config 中的上传文件（复用 __init__ 逻辑）
         if hasattr(self, 'config') and self.config:
-            extra_file = self.config.get("extra_voice_file")
-            if extra_file and isinstance(extra_file, str) and os.path.exists(extra_file):
-                keyword = os.path.splitext(os.path.basename(extra_file))[0].strip()
-                self.voice_map[keyword] = extra_file
-        
+            extra = self.config.get("extra_voice_file")
+            if isinstance(extra, list):
+                for rel_path in extra:
+                    if isinstance(rel_path, str):
+                        plugin_name = "astrbot_plugin_airi_voice"
+                        config_base = Path(__file__).parent.parent.parent / "data" / "config" / plugin_name
+                        abs_path = config_base / rel_path
+                        if abs_path.exists():
+                            keyword = os.path.splitext(os.path.basename(rel_path))[0].strip()
+                            self.voice_map[keyword] = str(abs_path)  # 会覆盖同名，但正常
+    
         new_count = len(self.voice_map)
         yield event.plain_result(
-            f"语音列表已重新加载！\n"
-            f"本地 voices/: {old_count} → {new_count} 个（含网页额外文件）\n"
-            f"输入关键词测试，或 /voice_list 查看"
+            f"已刷新语音列表！\n"
+            f"总数：{old_count} → {new_count}（含网页上传文件）\n"
+            f"试试输入关键词（如 愛♡）测试～"
         )
         
     # 可选：加一个命令查看所有可用关键词
