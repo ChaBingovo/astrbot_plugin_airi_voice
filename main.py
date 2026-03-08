@@ -6,13 +6,23 @@ from astrbot.api import logger
 
 @register("airi_voice", "lidure", "输入文件名发送对应语音", "1.0", "https://github.com/你的仓库/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
-        self.plugin_dir = os.path.abspath(os.path.dirname(__file__))  # 插件目录
-        self.voice_dir = os.path.join(self.plugin_dir, "voices")      # 改成 voices 文件夹
-
-        # 扫描一次 voices 目录，建立 关键词 → 完整路径 的映射
-        self.voice_map: Dict[str, str] = self._scan_voices()
+        self.plugin_dir = os.path.abspath(os.path.dirname(__file__))
+        self.voice_dir = os.path.join(self.plugin_dir, "voices")
+        
+        self.voice_map = self._scan_voices()
+        
+        # 加载网页配置的额外文件（如果有）
+        if config is not None:
+            extra_files = config.get("extra_voices", [])
+            for file_info in extra_files:
+                # file_info 可能是 dict 如 {"path": "...", "name": "..."} 
+                # 根据实际 AstrBot 返回格式调整（可能需要 logger.info 查看）
+                if isinstance(file_info, dict) and "path" in file_info:
+                    keyword = os.path.splitext(file_info.get("original_name", "unknown"))[0].strip()
+                    self.voice_map[keyword] = file_info["path"]
+                    logger.info(f"[AiriVoice] 从网页配置加载额外语音: {keyword} → {file_info['path']}")
 
     def _scan_voices(self) -> Dict[str, str]:
         """扫描 voices 目录，建立 {文件名(无后缀): 绝对路径} 映射"""
