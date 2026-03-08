@@ -5,7 +5,7 @@
 **输入关键词 → Airi 立刻回你一段可爱语音！**
 
 一个超级简单的语音包插件，让你的聊天瞬间变有趣～
-目前，voices中有：打卡啦摩托、汪大吼、airi自我介绍、生辰快乐、MMJ!（歌曲）
+
 [![AstrBot](https://img.shields.io/badge/AstrBot-%E6%94%AF%E6%8C%81-brightgreen)](https://github.com/Soulter/AstrBot)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
@@ -26,7 +26,7 @@ Airi：（发送 打卡啦摩托.mp3 的语音）
 
 你：/voice_list  
 Airi：列出所有可以触发的关键词列表～
-
+目前，voices中有：打卡啦摩托、汪大吼、airi自我介绍、生辰快乐、MMJ!（歌曲）
 ## 📦 安装方式
 
 1. 复制该github地址链接手动添加
