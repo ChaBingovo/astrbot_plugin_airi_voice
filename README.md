@@ -36,15 +36,6 @@ Airi：列出所有可以触发的关键词列表～
 
 1. 把你的语音文件（.mp3 / .wav 等）直接丢进插件目录下的 `voices/` 文件夹
 
-   示例结构：
-  astrbot_plugin_airi_voice/
-  ├── main.py
-  ├── README.md
-  └── voices/
-    ├── 打卡啦摩托.mp3
-    ├── 啊这.wav
-    ├── 寄！.ogg
-    └── 早安空气.mp3
 ## 📋 可用命令
 
 | 命令              | 说明                          |
