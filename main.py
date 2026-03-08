@@ -79,29 +79,30 @@ class AiriVoice(Star):
 
         except Exception as e:
             yield event.plain_result(f"发送语音失败：{str(e)}（文件：{text}）")
-            
+
+
 
     @filter.command("voice_reload")
-async def reload_voices(self, event: AstrMessageEvent):
-    old_count = len(self.voice_map)
-    
-    # 重新扫描本地 voices/
-    self.voice_map = self._scan_voices()
-    
-    # 重新加载网页 config（需要访问 config，但 __init__ 外的 reload 无法直接拿 config）
-    # 临时方案：假设你把 config 存为 self.config
-    if hasattr(self, 'config') and self.config:
-        extra_file = self.config.get("extra_voice_file")
-        if extra_file and isinstance(extra_file, str) and os.path.exists(extra_file):
-            keyword = os.path.splitext(os.path.basename(extra_file))[0].strip()
-            self.voice_map[keyword] = extra_file
-    
-    new_count = len(self.voice_map)
-    yield event.plain_result(
-        f"语音列表已重新加载！\n"
-        f"本地 voices/: {old_count} → {new_count} 个（含网页额外文件）\n"
-        f"输入关键词测试，或 /voice_list 查看"
-    )
+    async def reload_voices(self, event: AstrMessageEvent):
+        old_count = len(self.voice_map)
+        
+        # 重新扫描本地 voices/
+        self.voice_map = self._scan_voices()
+        
+        # 重新加载网页 config（需要访问 config，但 __init__ 外的 reload 无法直接拿 config）
+        # 临时方案：假设你把 config 存为 self.config
+        if hasattr(self, 'config') and self.config:
+            extra_file = self.config.get("extra_voice_file")
+            if extra_file and isinstance(extra_file, str) and os.path.exists(extra_file):
+                keyword = os.path.splitext(os.path.basename(extra_file))[0].strip()
+                self.voice_map[keyword] = extra_file
+        
+        new_count = len(self.voice_map)
+        yield event.plain_result(
+            f"语音列表已重新加载！\n"
+            f"本地 voices/: {old_count} → {new_count} 个（含网页额外文件）\n"
+            f"输入关键词测试，或 /voice_list 查看"
+        )
         
     # 可选：加一个命令查看所有可用关键词
     @filter.command("voice_list")
