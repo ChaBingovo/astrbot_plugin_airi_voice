@@ -6,23 +6,31 @@ from astrbot.api import logger
 
 @register("airi_voice", "lidure", "输入文件名发送对应语音", "1.0", "https://github.com/你的仓库/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
-    def __init__(self, context: Context, config: AstrBotConfig = None):
-        super().__init__(context)
-        self.plugin_dir = os.path.abspath(os.path.dirname(__file__))
-        self.voice_dir = os.path.join(self.plugin_dir, "voices")
-        
-        self.voice_map = self._scan_voices()
-        
-        # 加载网页配置的额外文件（如果有）
-        if config is not None:
-            extra_files = config.get("extra_voices", [])
-            for file_info in extra_files:
-                # file_info 可能是 dict 如 {"path": "...", "name": "..."} 
-                # 根据实际 AstrBot 返回格式调整（可能需要 logger.info 查看）
-                if isinstance(file_info, dict) and "path" in file_info:
-                    keyword = os.path.splitext(file_info.get("original_name", "unknown"))[0].strip()
-                    self.voice_map[keyword] = file_info["path"]
-                    logger.info(f"[AiriVoice] 从网页配置加载额外语音: {keyword} → {file_info['path']}")
+def __init__(self, context: Context, config: dict = None):
+    super().__init__(context)
+    self.plugin_dir = os.path.abspath(os.path.dirname(__file__))
+    self.voice_dir = os.path.join(self.plugin_dir, "voices")
+    self.voice_map: Dict[str, str] = self._scan_voices()
+
+    # 加载网页上传的单个额外文件
+    if config is not None:
+        extra_file = config.get("extra_voice_file")
+        if extra_file:
+            # extra_file 可能是 str（路径）或 dict（如 {"path": "...", "name": "..."}）
+            logger.info(f"[AiriVoice] 网页配置内容: {extra_file}")
+            if isinstance(extra_file, str):
+                file_path = extra_file
+                keyword = os.path.splitext(os.path.basename(file_path))[0].strip()
+            elif isinstance(extra_file, dict) and "path" in extra_file:
+                file_path = extra_file["path"]
+                keyword = os.path.splitext(extra_file.get("name") or os.path.basename(file_path))[0].strip()
+            else:
+                logger.warning("[AiriVoice] 未知的 extra_voice_file 格式")
+                return
+
+            if keyword and os.path.exists(file_path):
+                self.voice_map[keyword] = file_path
+                logger.info(f"[AiriVoice] 从网页上传加载额外语音: '{keyword}' → {file_path}")
 
     def _scan_voices(self) -> Dict[str, str]:
         """扫描 voices 目录，建立 {文件名(无后缀): 绝对路径} 映射"""
