@@ -6,7 +6,7 @@ from pathlib import Path
 import os
 from typing import Dict, Optional
 
-@register("airi_voice", "lidure", "输入文件名发送对应语音（支持本地 + 网页上传）", "1.1", "https://github.com/你的用户名/astrbot_plugin_airi_voice")
+@register("airi_voice", "lidure", "输入文件名发送对应语音（支持本地 + 网页上传）", "1.1", "https://github.com/Lidure/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -15,7 +15,7 @@ class AiriVoice(Star):
         self.plugin_dir = os.path.abspath(os.path.dirname(__file__))
         self.voice_dir = os.path.join(self.plugin_dir, "voices")
         
-        # 获取 AstrBot 为本插件分配的专用数据目录（模仿 pokepro）
+        # 获取 AstrBot 为本插件分配的专用数据目录
         self.data_dir = StarTools.get_data_dir("astrbot_plugin_airi_voice")
         self.extra_voice_dir = self.data_dir / "extra_voices"
         self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
@@ -127,10 +127,36 @@ class AiriVoice(Star):
         if not self.voice_map:
             yield event.plain_result("当前没有可用语音～快去 voices/ 或网页配置添加吧！")
             return
-
+    
+        # 获取页码（默认第1页）
+        args = (event.message_str or "").strip().split()
+        page = 1
+        if len(args) > 1 and args[1].isdigit():
+            page = int(args[1])
+            if page < 1:
+                page = 1
+    
         keys = sorted(self.voice_map.keys())
-        msg = f"可用关键词（共 {len(keys)} 个）：\n" + "\n".join(f"・ {k}" for k in keys[:50])
-        if len(keys) > 50:
-            msg += f"\n... 还有 {len(keys)-50} 个未显示"
-        msg += "\n\n直接输入关键词即可触发语音～"
+        total = len(keys)
+        page_size = 25  # 每页显示 25 个，适合大多数平台
+        total_pages = (total + page_size - 1) // page_size
+    
+        if page > total_pages:
+            yield event.plain_result(f"页码过大～总共只有 {total_pages} 页（共 {total} 个关键词）")
+            return
+    
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_keys = keys[start:end]
+    
+        msg = f"可用语音关键词（第 {page}/{total_pages} 页，共 {total} 个）：\n"
+        for k in page_keys:
+            msg += f"・ {k}\n"
+    
+        if total_pages > 1:
+            if page < total_pages:
+                msg += f"\n输入 /voice_list {page+1} 查看下一页"
+            if page > 1:
+                msg += f" | /voice_list {page-1} 返回上一页"
+    
         yield event.plain_result(msg)
