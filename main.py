@@ -121,7 +121,7 @@ class AiriVoice(Star):
             logger.error(f"[AiriVoice] 发送失败 '{text}': {str(e)}", exc_info=True)
             yield event.plain_result(f"语音发送失败：{str(e)}")
 
-    @filter.command("voice_reload")
+    @filter.command("voice.reload")
     async def reload_voices(self, event: AstrMessageEvent):
         old_count = len(self.voice_map)
 
@@ -139,7 +139,7 @@ class AiriVoice(Star):
             f"如果最近修改了网页配置，建议再发一次 /plugin reload"
         )
 
-    @filter.command("voice_list")
+    @filter.command("voice.list")
     async def list_voices(self, event: AstrMessageEvent):
         if not self.sorted_keys:
             yield event.plain_result("当前没有可用语音～快去 voices/ 或网页配置添加吧！")
