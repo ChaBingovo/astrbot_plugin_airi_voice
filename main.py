@@ -3,113 +3,97 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import logger
 from astrbot.core.star.star_tools import StarTools
 from pathlib import Path
-from typing import Dict
+import os
+from typing import Dict, Optional
 
-@register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传）", "1.3", "https://github.com/你的用户名/astrbot_plugin_airi_voice")
+@register("airi_voice", "lidure", "输入文件名发送对应语音（支持本地 + 网页上传）", "1.1", "https://github.com/Lidure/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
         
-        self.plugin_dir = Path(__file__).parent
-        self.voice_dir = self.plugin_dir / "voices"
+        # 插件目录 + 本地 voices 文件夹
+        self.plugin_dir = os.path.abspath(os.path.dirname(__file__))
+        self.voice_dir = os.path.join(self.plugin_dir, "voices")
         
-        # 去掉动态 parents[]，直接用你已知的根目录
-        astrbot_root = Path(r"F:\NORMAL\My_bot\AstrBot Tool\Local\AstrBotLauncher-0.2.0\AstrBot")
-        
-        # 插件专用数据目录（你之前确认的路径）
-        self.data_dir = astrbot_root / "data" / "plugin_data" / "astrbot_plugin_airi_voice"
+        # 获取 AstrBot 为本插件分配的专用数据目录
+        self.data_dir = StarTools.get_data_dir("astrbot_plugin_airi_voice")
         self.extra_voice_dir = self.data_dir / "extra_voices"
         self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
         
-        # 语音映射 + 排序缓存
+        # 语音映射：关键词（文件名无后缀） → 绝对路径
         self.voice_map: Dict[str, str] = {}
-        self.sorted_keys: list[str] = []
         
-        # 加载本地
+        # 加载本地 voices/
         self._load_local_voices()
         
-        # 保存 config
+        # 保存 config 用于 reload
         self.config = config
         
-        # 加载网页
+        # 加载网页配置的额外语音
         self._load_web_voices(config)
         
-        logger.info(f"[AiriVoice] 初始化完成，语音总数：{len(self.voice_map)} 个")
+        logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
 
     def _load_local_voices(self):
         """扫描本地 voices/ 文件夹"""
-        if not self.voice_dir.exists():
-            self.voice_dir.mkdir(parents=True, exist_ok=True)
+        if not os.path.exists(self.voice_dir):
+            os.makedirs(self.voice_dir, exist_ok=True)
             logger.info("[AiriVoice] 已创建本地 voices 目录")
 
         count = 0
-        for file_path in self.voice_dir.iterdir():
-            if file_path.is_file() and file_path.suffix.lower() in {'.mp3', '.wav', '.ogg', '.silk', '.amr'}:
-                keyword = file_path.stem.strip()
-                if keyword in self.voice_map:
-                    logger.warning(f"[AiriVoice] 本地关键词冲突：'{keyword}' 已存在，将被覆盖")
-                self.voice_map[keyword] = str(file_path)
+        for file in os.listdir(self.voice_dir):
+            if file.lower().endswith(('.mp3', '.wav', '.ogg', '.silk', '.amr')):
+                keyword = os.path.splitext(file)[0].strip()
+                abs_path = os.path.join(self.voice_dir, file)
+                self.voice_map[keyword] = abs_path
                 count += 1
-                logger.debug(f"[AiriVoice] 本地加载：'{keyword}' → {file_path}")
-
+                logger.debug(f"[AiriVoice] 本地加载：'{keyword}' → {abs_path}")
+        
         if count > 0:
             logger.info(f"[AiriVoice] 从本地 voices 加载 {count} 个语音")
 
-        # 更新排序缓存
-        self.sorted_keys = sorted(self.voice_map.keys())
-
     def _load_web_voices(self, config: dict = None):
+        """从网页配置加载额外语音（相对路径拼接）"""
         if config is None:
             logger.info("[AiriVoice] 未收到 config，不加载网页语音")
             return
-    
+        
         extra_pool = config.get("extra_voice_pool", [])
         if not extra_pool:
             logger.info("[AiriVoice] 无 extra_voice_pool 配置")
             return
-    
+        
         logger.info(f"[AiriVoice] 网页相对路径池：{extra_pool}")
-    
+        
         loaded = 0
-        data_dir_resolved = self.data_dir.resolve()
         for rel_path in extra_pool:
             if not isinstance(rel_path, str) or not rel_path.strip():
                 continue
-    
-            try:
-                abs_path = (self.data_dir / rel_path).resolve()
-                if not abs_path.is_relative_to(data_dir_resolved):
-                    logger.warning(f"[AiriVoice] 检测到非法路径尝试: {rel_path} → {abs_path}")
-                    continue
-            except Exception as e:
-                logger.warning(f"[AiriVoice] 路径解析失败: {rel_path} - {e}")
-                continue
-    
+            
+            abs_path = self.data_dir / rel_path
+            logger.debug(f"[AiriVoice] 检查网页路径：{abs_path}")
+            
             if abs_path.exists() and abs_path.is_file():
-                keyword = abs_path.stem.strip()
-                if keyword in self.voice_map:
-                    logger.warning(f"[AiriVoice] 关键词冲突：'{keyword}' 已存在，将覆盖")
-                self.voice_map[keyword] = str(abs_path)
-                loaded += 1
-                logger.info(f"[AiriVoice] 网页加载成功：'{keyword}' → {abs_path}")
+                keyword = os.path.splitext(os.path.basename(rel_path))[0].strip()
+                if keyword:
+                    self.voice_map[keyword] = str(abs_path)
+                    loaded += 1
+                    logger.info(f"[AiriVoice] 网页加载成功：'{keyword}' → {abs_path}")
             else:
                 logger.warning(f"[AiriVoice] 网页文件不存在：{abs_path} (相对: {rel_path})")
-    
+        
         if loaded > 0:
             logger.info(f"[AiriVoice] 从网页配置加载 {loaded} 个额外语音")
-    
-        self.sorted_keys = sorted(self.voice_map.keys())
 
-    @filter.regex(r"^\s*([^\s\u3000]+)\s*$")
+    @filter.regex(r"^\s*([^\s\u3000]+)\s*$")  # 匹配纯关键词（前后允许空白）
     async def voice_handler(self, event: AstrMessageEvent):
-        """无前缀直接触发：输入纯关键词即可"""
         text = (event.message_str or "").strip()
         if not text:
             return
 
         matched_path = self.voice_map.get(text)
         if matched_path is None:
-            return  # 未匹配，放行给其他插件
+            return  # 未匹配，放行
 
         try:
             logger.info(f"[AiriVoice] 触发语音：'{text}' → {matched_path}")
@@ -122,58 +106,57 @@ class AiriVoice(Star):
     @filter.command("voice_reload")
     async def reload_voices(self, event: AstrMessageEvent):
         old_count = len(self.voice_map)
-
-        # 清空并重新加载
-        self.voice_map.clear()
-        self.sorted_keys.clear()
+        
+        # 重新加载本地
+        self.voice_map = {}
         self._load_local_voices()
+        
+        # 重新加载网页配置
         if self.config:
             self._load_web_voices(self.config)
-
+        
         new_count = len(self.voice_map)
         yield event.plain_result(
             f"语音列表已刷新！\n"
             f"之前 {old_count} 个 → 现在 {new_count} 个\n"
-            f"网页上传的文件已重新加载\n"
-            f"如果最近修改了网页配置，建议再发一次 /plugin reload"
+            f"网页上传的文件已重新加载"
         )
 
     @filter.command("voice_list")
     async def list_voices(self, event: AstrMessageEvent):
-        if not self.sorted_keys:
+        if not self.voice_map:
             yield event.plain_result("当前没有可用语音～快去 voices/ 或网页配置添加吧！")
             return
-
+    
+        # 获取页码（默认第1页）
         args = (event.message_str or "").strip().split()
         page = 1
         if len(args) > 1 and args[1].isdigit():
             page = int(args[1])
             if page < 1:
                 page = 1
-
-        total = len(self.sorted_keys)
-        page_size = 25
+    
+        keys = sorted(self.voice_map.keys())
+        total = len(keys)
+        page_size = 25  # 每页显示 25 个，适合大多数平台
         total_pages = (total + page_size - 1) // page_size
-
+    
         if page > total_pages:
             yield event.plain_result(f"页码过大～总共只有 {total_pages} 页（共 {total} 个关键词）")
             return
-
+    
         start = (page - 1) * page_size
         end = start + page_size
-        page_keys = self.sorted_keys[start:end]
-
+        page_keys = keys[start:end]
+    
         msg = f"可用语音关键词（第 {page}/{total_pages} 页，共 {total} 个）：\n"
         for k in page_keys:
-            msg += f"・ {k}\n"
-
-        nav = ""
+            msg += f"? {k}\n"
+    
         if total_pages > 1:
-            if page > 1:
-                nav += f" /voice_list {page-1} ← 上一页"
             if page < total_pages:
-                nav += f" /voice_list {page+1} → 下一页"
-            if nav:
-                msg += f"\n{nav.strip()}"
-
+                msg += f"\n输入 /voice_list {page+1} 查看下一页"
+            if page > 1:
+                msg += f" | /voice_list {page-1} 返回上一页"
+    
         yield event.plain_result(msg)
