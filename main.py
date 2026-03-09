@@ -3,10 +3,9 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import logger
 from astrbot.core.star.star_tools import StarTools
 from pathlib import Path
-import re
 from typing import Dict
 
-@register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传）", "1.2", "https://github.com/你的用户名/astrbot_plugin_airi_voice")
+@register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传）", "1.3", "https://github.com/你的用户名/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -14,7 +13,7 @@ class AiriVoice(Star):
         self.plugin_dir = Path(__file__).parent
         self.voice_dir = self.plugin_dir / "voices"
 
-        # 获取插件专用数据目录（模仿 pokepro）
+        # 获取插件专用数据目录
         self.data_dir = Path(StarTools.get_data_dir("astrbot_plugin_airi_voice"))
         self.extra_voice_dir = self.data_dir / "extra_voices"
         self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
@@ -33,7 +32,6 @@ class AiriVoice(Star):
         # 加载网页配置语音
         self._load_web_voices(config)
 
-        # 预编译正则（可选动态关键词匹配，但这里用前缀更安全）
         logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
 
     def _load_local_voices(self):
@@ -102,30 +100,32 @@ class AiriVoice(Star):
         # 更新排序缓存
         self.sorted_keys = sorted(self.voice_map.keys())
 
-    async def handle_message(self, event: AstrMessageEvent):
-        """
-        严格关键词触发方式：消息完全匹配关键词才触发
-        """
-        message_text = event.message_str.strip()
-        
-        # 检查是否完全匹配某个关键词
-        if message_text in self.voice_map:
-            matched_path = self.voice_map[message_text]
-            
-            try:
-                logger.info(f"[AiriVoice] 严格关键词触发语音：'{message_text}' → {matched_path}")
-                chain = [Record.fromFileSystem(matched_path)]
-                yield event.chain_result(chain)
-            except Exception as e:
-                logger.error(f"[AiriVoice] 发送失败 '{message_text}': {str(e)}", exc_info=True)
-                yield event.plain_result(f"语音发送失败：{str(e)}")
+    @filter.regex(r"^\s*([^\s\u3000]+)\s*$")
+    async def voice_handler(self, event: AstrMessageEvent):
+        """无前缀直接触发：输入纯关键词即可"""
+        text = (event.message_str or "").strip()
+        if not text:
+            return
 
-    @filter.command("voice.reload")
+        matched_path = self.voice_map.get(text)
+        if matched_path is None:
+            return  # 未匹配，放行给其他插件
+
+        try:
+            logger.info(f"[AiriVoice] 触发语音：'{text}' → {matched_path}")
+            chain = [Record.fromFileSystem(matched_path)]
+            yield event.chain_result(chain)
+        except Exception as e:
+            logger.error(f"[AiriVoice] 发送失败 '{text}': {str(e)}", exc_info=True)
+            yield event.plain_result(f"语音发送失败：{str(e)}")
+
+    @filter.command("voice_reload")
     async def reload_voices(self, event: AstrMessageEvent):
         old_count = len(self.voice_map)
 
         # 清空并重新加载
         self.voice_map.clear()
+        self.sorted_keys.clear()
         self._load_local_voices()
         if self.config:
             self._load_web_voices(self.config)
@@ -138,7 +138,7 @@ class AiriVoice(Star):
             f"如果最近修改了网页配置，建议再发一次 /plugin reload"
         )
 
-    @filter.command("voice.list")
+    @filter.command("voice_list")
     async def list_voices(self, event: AstrMessageEvent):
         if not self.sorted_keys:
             yield event.plain_result("当前没有可用语音～快去 voices/ 或网页配置添加吧！")
@@ -163,7 +163,7 @@ class AiriVoice(Star):
         end = start + page_size
         page_keys = self.sorted_keys[start:end]
 
-        msg = f"❤️直接输入关键词触发❤️\n🌸可用语音关键词（第 {page}/{total_pages} 页，共 {total} 个）：\n"
+        msg = f"可用语音关键词（第 {page}/{total_pages} 页，共 {total} 个）：\n"
         for k in page_keys:
             msg += f"・ {k}\n"
 
