@@ -9,30 +9,32 @@ from typing import Dict
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
-
+        
         self.plugin_dir = Path(__file__).parent
         self.voice_dir = self.plugin_dir / "voices"
-
-        # 获取插件专用数据目录
-        self.data_dir = Path(StarTools.get_data_dir("astrbot_plugin_airi_voice"))
+        
+        # 去掉动态 parents[]，直接用你已知的根目录
+        astrbot_root = Path(r"F:\NORMAL\My_bot\AstrBot Tool\Local\AstrBotLauncher-0.2.0\AstrBot")
+        
+        # 插件专用数据目录（你之前确认的路径）
+        self.data_dir = astrbot_root / "data" / "plugin_data" / "astrbot_plugin_airi_voice"
         self.extra_voice_dir = self.data_dir / "extra_voices"
         self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
-
-        # 语音映射：关键词 → 绝对路径
+        
+        # 语音映射 + 排序缓存
         self.voice_map: Dict[str, str] = {}
-        # 缓存排序后的关键词列表（用于 voice_list）
         self.sorted_keys: list[str] = []
-
-        # 加载本地 voices
+        
+        # 加载本地
         self._load_local_voices()
-
-        # 保存 config 用于 reload
+        
+        # 保存 config
         self.config = config
-
-        # 加载网页配置语音
+        
+        # 加载网页
         self._load_web_voices(config)
-
-        logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
+        
+        logger.info(f"[AiriVoice] 初始化完成，语音总数：{len(self.voice_map)} 个")
 
     def _load_local_voices(self):
         """扫描本地 voices/ 文件夹"""
@@ -57,24 +59,23 @@ class AiriVoice(Star):
         self.sorted_keys = sorted(self.voice_map.keys())
 
     def _load_web_voices(self, config: dict = None):
-        """从网页配置加载额外语音（相对路径）"""
         if config is None:
             logger.info("[AiriVoice] 未收到 config，不加载网页语音")
             return
-
+    
         extra_pool = config.get("extra_voice_pool", [])
         if not extra_pool:
             logger.info("[AiriVoice] 无 extra_voice_pool 配置")
             return
-
+    
         logger.info(f"[AiriVoice] 网页相对路径池：{extra_pool}")
-
+    
         loaded = 0
         data_dir_resolved = self.data_dir.resolve()
         for rel_path in extra_pool:
             if not isinstance(rel_path, str) or not rel_path.strip():
                 continue
-
+    
             try:
                 abs_path = (self.data_dir / rel_path).resolve()
                 if not abs_path.is_relative_to(data_dir_resolved):
@@ -83,21 +84,20 @@ class AiriVoice(Star):
             except Exception as e:
                 logger.warning(f"[AiriVoice] 路径解析失败: {rel_path} - {e}")
                 continue
-
+    
             if abs_path.exists() and abs_path.is_file():
                 keyword = abs_path.stem.strip()
                 if keyword in self.voice_map:
-                    logger.warning(f"[AiriVoice] 网页关键词冲突：'{keyword}' 已存在，将覆盖")
+                    logger.warning(f"[AiriVoice] 关键词冲突：'{keyword}' 已存在，将覆盖")
                 self.voice_map[keyword] = str(abs_path)
                 loaded += 1
                 logger.info(f"[AiriVoice] 网页加载成功：'{keyword}' → {abs_path}")
             else:
                 logger.warning(f"[AiriVoice] 网页文件不存在：{abs_path} (相对: {rel_path})")
-
+    
         if loaded > 0:
             logger.info(f"[AiriVoice] 从网页配置加载 {loaded} 个额外语音")
-
-        # 更新排序缓存
+    
         self.sorted_keys = sorted(self.voice_map.keys())
 
     @filter.regex(r"^\s*([^\s\u3000]+)\s*$")
