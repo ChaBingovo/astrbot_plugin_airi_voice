@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict
 import re
 
-@register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传）", "1.3", "https://github.com/你的用户名/astrbot_plugin_airi_voice")
+@register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传）", "1.4", "https://github.com/Lidure/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
             super().__init__(context)
