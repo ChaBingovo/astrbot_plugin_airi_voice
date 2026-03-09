@@ -8,32 +8,28 @@ from typing import Dict
 @register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传）", "1.3", "https://github.com/你的用户名/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
-        super().__init__(context)
-
-        # 插件目录
-        self.plugin_dir = Path(__file__).parent
-        self.voice_dir = self.plugin_dir / "voices"
-
-        # 插件专用数据目录（使用 StarTools 获取，避免硬编码）
-        self.data_dir = Path(StarTools.get_data_dir("astrbot_plugin_airi_voice"))
-        self.extra_voice_dir = self.data_dir / "extra_voices"
-        self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
-
-        # 语音映射：关键词 → 绝对路径
-        self.voice_map: Dict[str, str] = {}
-        # 缓存排序后的关键词列表（用于 voice_list 翻页）
-        self.sorted_keys: list[str] = []
-
-        # 加载本地 voices
-        self._load_local_voices()
-
-        # 保存 config 用于 reload 时重新加载网页部分
-        self.config = config
-
-        # 加载网页上传的语音
-        self._load_web_voices(config)
-
-        logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
+            super().__init__(context)
+    
+            self.plugin_dir = Path(__file__).parent
+            self.voice_dir = self.plugin_dir / "voices"
+    
+            self.data_dir = Path(StarTools.get_data_dir("astrbot_plugin_airi_voice"))
+            self.extra_voice_dir = self.data_dir / "extra_voices"
+            self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
+    
+            self.voice_map: Dict[str, str] = {}
+            self.sorted_keys: list[str] = []
+    
+            self._load_local_voices()
+    
+            # 关键：读取 trigger_mode 配置（默认 direct）
+            self.config = config
+            self.trigger_mode = (config or {}).get("trigger_mode", "direct")
+            logger.info(f"[AiriVoice] 当前触发模式：{self.trigger_mode}")
+    
+            self._load_web_voices(config)
+    
+            logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
 
     def _load_local_voices(self):
         """扫描本地 voices/ 文件夹"""
@@ -101,24 +97,34 @@ class AiriVoice(Star):
         # 更新排序缓存
         self.sorted_keys = sorted(self.voice_map.keys())
 
-    @filter.regex(r"^\s*([^\s\u3000]+)\s*$")
-    async def voice_handler(self, event: AstrMessageEvent):
-        """无前缀直接触发：输入纯关键词即可"""
-        text = (event.message_str or "").strip()
-        if not text:
-            return
-
-        matched_path = self.voice_map.get(text)
-        if matched_path is None:
-            return  # 未匹配，放行给其他插件
-
-        try:
-            logger.info(f"[AiriVoice] 触发语音：'{text}' → {matched_path}")
-            chain = [Record.fromFileSystem(matched_path)]
-            yield event.chain_result(chain)
-        except Exception as e:
-            logger.error(f"[AiriVoice] 发送失败 '{text}': {str(e)}", exc_info=True)
-            yield event.plain_result(f"语音发送失败：{str(e)}")
+    @filter.regex(r"^\s*.+\s*$")  # 宽松捕获所有非空消息（兼容两种模式）
+        async def voice_handler(self, event: AstrMessageEvent):
+            text = (event.message_str or "").strip()
+            if not text:
+                return
+    
+            keyword = text  # 默认直接用全文作为关键词
+    
+            # 根据配置判断是否需要前缀
+            if self.trigger_mode == "prefix":
+                match = re.search(r"^#voice\s+(.+)", text, re.I)
+                if not match:
+                    return  # 前缀模式下没匹配到 #voice 开头，直接放行
+                keyword = match.group(1).strip()
+    
+            matched_path = self.voice_map.get(keyword)
+            if matched_path is None:
+                # 可选：提示用户没找到（提升体验）
+                # yield event.plain_result(f"没找到 '{keyword}' 对应的语音哦～试试 /voice_list 查看列表？")
+                return
+    
+            try:
+                logger.info(f"[AiriVoice] 触发语音（模式: {self.trigger_mode}）：'{keyword}' → {matched_path}")
+                chain = [Record.fromFileSystem(matched_path)]
+                yield event.chain_result(chain)
+            except Exception as e:
+                logger.error(f"[AiriVoice] 发送失败 '{keyword}': {str(e)}", exc_info=True)
+                yield event.plain_result(f"语音发送失败：{str(e)}")
 
     @filter.command("voice_reload")
     async def reload_voices(self, event: AstrMessageEvent):
