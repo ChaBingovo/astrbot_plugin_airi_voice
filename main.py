@@ -164,7 +164,7 @@ class AiriVoice(Star):
         end = start + page_size
         page_keys = self.sorted_keys[start:end]
 
-        msg = f"可用语音关键词（第 {page}/{total_pages} 页，共 {total} 个）：\n"
+        msg = f"❤️输入'#voice 关键词'触发❤️\n🌸可用语音关键词（第 {page}/{total_pages} 页，共 {total} 个）：\n"
         for k in page_keys:
             msg += f"・ {k}\n"
 
