@@ -138,68 +138,90 @@ class AiriVoice(Star):
     @filter.command("voice.add")
     async def add_voice(self, event: AstrMessageEvent):
         """引用一条语音消息 + voice.add 名字 → 保存为 silk 文件"""
-        if not event.quote_message:
-            yield event.plain_result("请引用一条语音消息后再使用 voice.add 名字")
+        # aiocqhttp 中引用消息通常在 event.reply 或 event.message 的 Reply segment
+        quoted_msg = None
+    
+        # 尝试从 event.reply 获取（部分适配器支持）
+        if hasattr(event, 'reply') and event.reply:
+            quoted_msg = event.reply
+        else:
+            # 遍历消息链找 Reply segment
+            for seg in event.message:
+                if seg.type == 'reply':
+                    # 获取 reply.id，然后拉取完整消息
+                    reply_id = seg.data.get('id')
+                    if reply_id:
+                        try:
+                            # 使用 bot API 拉取被引用消息
+                            quoted_msg = await self.context.bot.get_msg(message_id=reply_id)
+                            break
+                        except Exception as e:
+                            logger.error(f"[AiriVoice] 拉取引用消息失败: {e}")
+                            yield event.plain_result("无法获取引用的消息内容，请稍后再试")
+                            return
+    
+        if not quoted_msg:
+            yield event.plain_result("请先引用（回复）一条语音消息，再使用 voice.add 名字")
             return
-
+    
         args = (event.message_str or "").strip().split(maxsplit=1)
         if len(args) < 2:
             yield event.plain_result("用法：voice.add 名字\n请引用一条语音消息")
             return
-
+    
         name = args[1].strip()
         if not name:
             yield event.plain_result("名字不能为空")
             return
-
-        # 从引用消息中找 Record（语音）segment
+    
+        # 从 quoted_msg 中找 Record segment
         voice_segment = None
-        for seg in event.quote_message.chain:
-            if isinstance(seg, Record):
+        for seg in quoted_msg.message:  # quoted_msg.message 是消息链
+            if seg.type == 'record':
                 voice_segment = seg
                 break
-
+    
         if not voice_segment:
             yield event.plain_result("引用的消息中没有语音哦～请引用一条语音消息")
             return
-
-        # 优先尝试获取 silk 数据（QQ 语音通常是 silk 格式）
+    
+        # 获取语音数据
         voice_data = None
         if hasattr(voice_segment, 'data') and voice_segment.data:
             voice_data = voice_segment.data
-        elif hasattr(voice_segment, 'file') and voice_segment.file:
-            # 如果是 file 路径，读取内容
+        elif 'file' in voice_segment.data:
+            # 如果是 file_id，尝试下载
+            file_id = voice_segment.data['file']
             try:
-                with open(voice_segment.file, 'rb') as f:
-                    voice_data = f.read()
+                # 使用 bot API 下载语音
+                voice_data = await self.context.bot.download_file(file_id)
             except Exception as e:
-                logger.error(f"读取引用语音文件失败: {e}")
-                yield event.plain_result("无法读取引用的语音文件")
+                logger.error(f"[AiriVoice] 下载语音失败: {e}")
+                yield event.plain_result("无法下载引用的语音文件")
                 return
         else:
             yield event.plain_result("无法获取语音数据（不支持的语音格式）")
             return
-
+    
         if not voice_data:
             yield event.plain_result("语音数据为空，无法保存")
             return
-
-        # 保存为 silk 文件（即使原格式不是 silk，也强制保存为 .silk 后缀）
+    
+        # 保存为 silk 文件
         save_name = f"{name}.silk"
         save_path = self.voice_dir / save_name
-
+    
         try:
             with open(save_path, 'wb') as f:
                 f.write(voice_data)
             logger.info(f"[AiriVoice] 成功保存语音：{save_name} → {save_path}")
-
-            # 加入 voice_map
+    
             keyword = name.strip()
             if keyword in self.voice_map:
                 logger.warning(f"[AiriVoice] 关键词冲突：'{keyword}' 已存在，将覆盖")
             self.voice_map[keyword] = str(save_path)
             self.sorted_keys = sorted(self.voice_map.keys())
-
+    
             yield event.plain_result(f"已保存语音为 '{keyword}'！\n后续直接输入 {keyword} 即可触发发送～")
         except Exception as e:
             logger.error(f"[AiriVoice] 保存语音失败: {e}", exc_info=True)
