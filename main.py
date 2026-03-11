@@ -5,6 +5,7 @@ from astrbot.api.message_components import Record
 from pathlib import Path
 from typing import Dict, List, Set
 import re
+import os
 
 ALLOWED_EXT = {'.mp3', '.wav', '.ogg', '.silk', '.amr'}
 PAGE_SIZE = 25
@@ -75,8 +76,11 @@ class AiriVoice(Star):
         if not extra_pool:
             return
         
+        # 获取 AstrBot 工作目录（用于解析相对路径）
+        astrbot_work_dir = Path(os.getcwd())
+        logger.debug(f"[AiriVoice] AstrBot 工作目录：{astrbot_work_dir}")
+        
         for file_info in extra_pool:
-            # AstrBot file 类型配置可能返回多种格式
             file_path = None
             
             # 格式1: 直接是路径字符串
@@ -97,14 +101,25 @@ class AiriVoice(Star):
                 logger.warning(f"[AiriVoice] 无法解析文件信息：{file_info}")
                 continue
             
+            # 转换为 Path 对象
             abs_path = Path(file_path)
+            
+            # 如果是相对路径，尝试相对于 AstrBot 工作目录
+            if not abs_path.is_absolute():
+                abs_path = astrbot_work_dir / abs_path
+            
+            # 检查文件是否存在
             if abs_path.exists() and abs_path.is_file() and abs_path.suffix.lower() in ALLOWED_EXT:
                 keyword = abs_path.stem.strip()
                 if keyword:
                     self.voice_map[keyword] = str(abs_path)
-                    logger.debug(f"[AiriVoice] 加载额外语音：{keyword} -> {abs_path}")
+                    logger.info(f"[AiriVoice] ✅ 加载额外语音：{keyword} -> {abs_path}")
             else:
-                logger.warning(f"[AiriVoice] 文件不存在或格式不支持：{abs_path}")
+                logger.warning(f"[AiriVoice] ❌ 文件不存在或格式不支持：{abs_path}")
+                # 调试：列出可能的位置
+                logger.debug(f"[AiriVoice] 当前工作目录：{os.getcwd()}")
+                logger.debug(f"[AiriVoice] 文件绝对路径：{abs_path.resolve()}")
+                logger.debug(f"[AiriVoice] 文件存在：{abs_path.exists()}")
 
     def _check_admin(self, event: AstrMessageEvent) -> bool:
         """检查用户是否有管理员权限"""
