@@ -67,22 +67,44 @@ class AiriVoice(Star):
         self._load_extra_voices()
         
         self.sorted_keys = sorted(self.voice_map.keys())
+        logger.debug(f"[AiriVoice] 语音列表已更新，共 {len(self.voice_map)} 个")
 
     def _load_extra_voices(self):
         """加载网页配置的额外语音"""
         extra_pool = self.config.get("extra_voice_pool", [])
-        data_dir = self.voice_dir.parent / "extra_voices"
-        data_dir.mkdir(parents=True, exist_ok=True)
+        if not extra_pool:
+            return
         
-        for rel_path in extra_pool:
-            if not isinstance(rel_path, str) or not rel_path.strip():
+        for file_info in extra_pool:
+            # AstrBot file 类型配置可能返回多种格式
+            file_path = None
+            
+            # 格式1: 直接是路径字符串
+            if isinstance(file_info, str) and file_info.strip():
+                file_path = file_info.strip()
+            
+            # 格式2: 是字典，包含 path/file_path 字段
+            elif isinstance(file_info, dict):
+                file_path = file_info.get("path") or file_info.get("file_path") or file_info.get("file")
+            
+            # 格式3: 是对象，有 path 属性
+            elif hasattr(file_info, "path"):
+                file_path = file_info.path
+            elif hasattr(file_info, "file_path"):
+                file_path = file_info.file_path
+            
+            if not file_path or not isinstance(file_path, str):
+                logger.warning(f"[AiriVoice] 无法解析文件信息：{file_info}")
                 continue
             
-            abs_path = data_dir / rel_path
+            abs_path = Path(file_path)
             if abs_path.exists() and abs_path.is_file() and abs_path.suffix.lower() in ALLOWED_EXT:
                 keyword = abs_path.stem.strip()
                 if keyword:
                     self.voice_map[keyword] = str(abs_path)
+                    logger.debug(f"[AiriVoice] 加载额外语音：{keyword} -> {abs_path}")
+            else:
+                logger.warning(f"[AiriVoice] 文件不存在或格式不支持：{abs_path}")
 
     def _check_admin(self, event: AstrMessageEvent) -> bool:
         """检查用户是否有管理员权限"""
