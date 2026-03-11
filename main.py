@@ -12,29 +12,37 @@ ALLOWED_EXT = {'.mp3', '.wav', '.ogg', '.silk', '.amr'}
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
-
+    
         self.plugin_dir = Path(__file__).parent
         self.voice_dir = self.plugin_dir / "voices"
-
-        self.data_dir = Path(StarTools.get_data_dir("astrbot_plugin_airi_voice"))
+    
+        # 优先使用 context 提供的插件数据目录（最兼容）
+        if hasattr(context, 'plugin_data_dir'):
+            self.data_dir = Path(context.plugin_data_dir)
+        else:
+            # fallback：动态计算（适用于大多数情况）
+            self.data_dir = self.plugin_dir.parent.parent / "data" / "plugin_data" / "astrbot_plugin_airi_voice"
+        
         self.extra_voice_dir = self.data_dir / "extra_voices"
         self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
-
+    
+        # 其余代码不变...
         self.voice_map: Dict[str, str] = {}
         self.sorted_keys: list[str] = []
-
+    
         self._load_local_voices()
-
+    
         self.config = config
         self.trigger_mode = (config or {}).get("trigger_mode", "direct")
         if self.trigger_mode not in {"prefix", "direct"}:
             logger.warning(f"[AiriVoice] 无效 trigger_mode '{self.trigger_mode}'，强制使用 direct")
             self.trigger_mode = "direct"
         logger.info(f"[AiriVoice] 当前触发模式：{self.trigger_mode}")
-
+    
         self._load_web_voices(config)
         self.last_pool_len = len(config.get("extra_voice_pool", [])) if config else 0
-
+    
+        logger.info(f"[AiriVoice] 数据目录：{self.data_dir}")
         logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
 
     def _load_local_voices(self):
