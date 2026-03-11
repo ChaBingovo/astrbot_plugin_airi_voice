@@ -5,7 +5,6 @@ from astrbot.api.message_components import Record
 from pathlib import Path
 from typing import Dict, List, Set
 import re
-import os
 
 ALLOWED_EXT = {'.mp3', '.wav', '.ogg', '.silk', '.amr'}
 PAGE_SIZE = 25
@@ -21,10 +20,18 @@ class AiriVoice(Star):
         self.voice_dir = self.plugin_dir / "voices"
         self.voice_dir.mkdir(parents=True, exist_ok=True)
         
+        # 插件数据目录（网页上传的语音存储位置）
+        self.data_dir = self.plugin_dir.parent.parent.parent / "data" / "plugin_data" / "astrbot_plugin_airi_voice"
+        self.extra_voice_dir = self.data_dir / "extra_voices"
+        self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"[AiriVoice] 数据目录：{self.data_dir}")
+        
         # 配置
         self.config = config or {}
         self.trigger_mode = self.config.get("trigger_mode", "direct")
         if self.trigger_mode not in {"prefix", "direct"}:
+            logger.warning(f"[AiriVoice] 无效 trigger_mode，强制使用 direct")
             self.trigger_mode = "direct"
         
         # 权限控制
@@ -47,79 +54,71 @@ class AiriVoice(Star):
         self.voice_map: Dict[str, str] = {}
         self.sorted_keys: List[str] = []
         
-        # 配置监控
+        # 加载语音
+        self._load_local_voices()
+        self._load_web_voices(self.config)
         self.last_pool_len = len(self.config.get("extra_voice_pool", []))
         
-        self._load_voices()
         logger.info(f"[AiriVoice] 初始化完成，共 {len(self.voice_map)} 个语音，权限模式：{self.admin_mode}")
 
-    def _load_voices(self):
-        """加载所有语音文件"""
-        self.voice_map.clear()
-        
-        # 加载本地 voices 目录
+    def _load_local_voices(self):
+        """加载本地 voices 目录的语音"""
+        count = 0
         for file_path in self.voice_dir.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in ALLOWED_EXT:
                 keyword = file_path.stem.strip()
                 if keyword:
                     self.voice_map[keyword] = str(file_path)
+                    count += 1
         
-        # 加载网页配置的额外语音
-        self._load_extra_voices()
-        
-        self.sorted_keys = sorted(self.voice_map.keys())
-        logger.debug(f"[AiriVoice] 语音列表已更新，共 {len(self.voice_map)} 个")
+        if count > 0:
+            logger.info(f"[AiriVoice] 从本地加载 {count} 个语音")
 
-    def _load_extra_voices(self):
+    def _load_web_voices(self, config: dict = None):
         """加载网页配置的额外语音"""
-        extra_pool = self.config.get("extra_voice_pool", [])
+        if config is None:
+            return
+        
+        extra_pool = config.get("extra_voice_pool", [])
         if not extra_pool:
             return
         
-        # 获取 AstrBot 工作目录（用于解析相对路径）
-        astrbot_work_dir = Path(os.getcwd())
-        logger.debug(f"[AiriVoice] AstrBot 工作目录：{astrbot_work_dir}")
+        logger.debug(f"[AiriVoice] 网页相对路径池：{extra_pool}")
         
-        for file_info in extra_pool:
-            file_path = None
-            
-            # 格式1: 直接是路径字符串
-            if isinstance(file_info, str) and file_info.strip():
-                file_path = file_info.strip()
-            
-            # 格式2: 是字典，包含 path/file_path 字段
-            elif isinstance(file_info, dict):
-                file_path = file_info.get("path") or file_info.get("file_path") or file_info.get("file")
-            
-            # 格式3: 是对象，有 path 属性
-            elif hasattr(file_info, "path"):
-                file_path = file_info.path
-            elif hasattr(file_info, "file_path"):
-                file_path = file_info.file_path
-            
-            if not file_path or not isinstance(file_path, str):
-                logger.warning(f"[AiriVoice] 无法解析文件信息：{file_info}")
+        loaded = 0
+        data_dir_resolved = self.data_dir.resolve()
+        
+        for rel_path in extra_pool:
+            if not isinstance(rel_path, str) or not rel_path.strip():
                 continue
             
-            # 转换为 Path 对象
-            abs_path = Path(file_path)
+            try:
+                # 相对于插件数据目录解析路径
+                abs_path = (self.data_dir / rel_path).resolve()
+                
+                # 安全校验：防止路径穿越
+                if not abs_path.is_relative_to(data_dir_resolved):
+                    logger.warning(f"[AiriVoice] 检测到非法路径：{rel_path}")
+                    continue
+            except Exception as e:
+                logger.warning(f"[AiriVoice] 路径解析失败：{rel_path} - {e}")
+                continue
             
-            # 如果是相对路径，尝试相对于 AstrBot 工作目录
-            if not abs_path.is_absolute():
-                abs_path = astrbot_work_dir / abs_path
-            
-            # 检查文件是否存在
-            if abs_path.exists() and abs_path.is_file() and abs_path.suffix.lower() in ALLOWED_EXT:
+            if abs_path.exists() and abs_path.is_file():
+                if abs_path.suffix.lower() not in ALLOWED_EXT:
+                    logger.warning(f"[AiriVoice] 忽略非音频文件：{abs_path}")
+                    continue
+                
                 keyword = abs_path.stem.strip()
                 if keyword:
                     self.voice_map[keyword] = str(abs_path)
-                    logger.info(f"[AiriVoice] ✅ 加载额外语音：{keyword} -> {abs_path}")
+                    loaded += 1
+                    logger.debug(f"[AiriVoice] 网页加载：'{keyword}' → {abs_path}")
             else:
-                logger.warning(f"[AiriVoice] ❌ 文件不存在或格式不支持：{abs_path}")
-                # 调试：列出可能的位置
-                logger.debug(f"[AiriVoice] 当前工作目录：{os.getcwd()}")
-                logger.debug(f"[AiriVoice] 文件绝对路径：{abs_path.resolve()}")
-                logger.debug(f"[AiriVoice] 文件存在：{abs_path.exists()}")
+                logger.warning(f"[AiriVoice] 文件不存在：{abs_path} (相对：{rel_path})")
+        
+        if loaded > 0:
+            logger.info(f"[AiriVoice] 从网页配置加载 {loaded} 个额外语音")
 
     def _check_admin(self, event: AstrMessageEvent) -> bool:
         """检查用户是否有管理员权限"""
@@ -162,10 +161,11 @@ class AiriVoice(Star):
         if not text:
             return
 
-        # 检查配置变化，自动刷新
+        # 自动检测配置变化（网页上传后自动刷新）
         current_pool_len = len(self.config.get("extra_voice_pool", []))
         if current_pool_len > self.last_pool_len:
-            self._load_voices()
+            logger.info("[AiriVoice] 检测到网页配置变化，自动刷新语音列表")
+            self._load_web_voices(self.config)
             self.last_pool_len = current_pool_len
 
         # 获取关键词
@@ -226,8 +226,11 @@ class AiriVoice(Star):
             yield event.plain_result("❌ 权限不足：此命令仅限管理员使用")
             return
         
-        self._load_voices()
+        self._load_local_voices()
+        self._load_web_voices(self.config)
+        self.sorted_keys = sorted(self.voice_map.keys())
         self.last_pool_len = len(self.config.get("extra_voice_pool", []))
+        
         yield event.plain_result(f"✅ 已重新加载，共 {len(self.voice_map)} 个语音")
 
     @filter.command("voice.help")
