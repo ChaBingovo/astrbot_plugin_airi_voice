@@ -20,21 +20,33 @@ class AiriVoice(Star):
         self.voice_dir = self.plugin_dir / "voices"
         self.voice_dir.mkdir(parents=True, exist_ok=True)
         
-        # 配置（来自 AstrBot 网页后台）
+        # 配置
         self.config = config or {}
         self.trigger_mode = self.config.get("trigger_mode", "direct")
         if self.trigger_mode not in {"prefix", "direct"}:
             self.trigger_mode = "direct"
         
-        # 权限控制（来自 AstrBot 网页配置）
+        # 权限控制
         self.admin_mode = self.config.get("admin_mode", "whitelist")
-        self.admin_whitelist: Set[str] = set(self.config.get("admin_whitelist", []))
+        if self.admin_mode not in {"all", "admin", "whitelist"}:
+            self.admin_mode = "whitelist"
+        
+        # 解析白名单（支持多行文本）
+        whitelist_raw = self.config.get("admin_whitelist", "")
+        if isinstance(whitelist_raw, str):
+            self.admin_whitelist: Set[str] = set(
+                line.strip() for line in whitelist_raw.splitlines() if line.strip()
+            )
+        elif isinstance(whitelist_raw, list):
+            self.admin_whitelist: Set[str] = set(str(x).strip() for x in whitelist_raw if str(x).strip())
+        else:
+            self.admin_whitelist: Set[str] = set()
         
         # 语音映射
         self.voice_map: Dict[str, str] = {}
         self.sorted_keys: List[str] = []
         
-        # 网页配置监控
+        # 配置监控
         self.last_pool_len = len(self.config.get("extra_voice_pool", []))
         
         self._load_voices()
@@ -74,15 +86,12 @@ class AiriVoice(Star):
 
     def _check_admin(self, event: AstrMessageEvent) -> bool:
         """检查用户是否有管理员权限"""
-        # 模式：all = 所有人，admin = 平台管理员，whitelist = 白名单
         if self.admin_mode == "all":
             return True
         
         if self.admin_mode == "admin":
-            # 检查 AstrBot 平台管理员权限
             if getattr(event, 'is_admin', False) or getattr(event, 'is_master', False):
                 return True
-            # 尝试从 user_info 获取角色
             try:
                 role = event.get_platform_user_role()
                 if role in ('admin', 'owner', 'master'):
@@ -92,7 +101,6 @@ class AiriVoice(Star):
             return False
         
         if self.admin_mode == "whitelist":
-            # 获取用户 ID
             user_id = None
             try:
                 user_id = event.message_obj.sender.user_id
@@ -102,7 +110,6 @@ class AiriVoice(Star):
             if user_id and str(user_id) in self.admin_whitelist:
                 return True
             
-            # 也检查昵称
             uname = getattr(event, 'sender_name', None) or getattr(event, 'nickname', None)
             if uname and uname in self.admin_whitelist:
                 return True
