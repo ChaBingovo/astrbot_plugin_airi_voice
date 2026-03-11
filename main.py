@@ -138,34 +138,57 @@ class AiriVoice(Star):
     @filter.command("voice.add")
     async def add_voice(self, event: AstrMessageEvent):
         """引用一条语音消息 + voice.add 名字 → 保存为 silk 文件"""
-        # 先检查是否有引用（reply）
-        quoted_msg = None
+        # 打印 raw_message 调试
+        logger.debug(f"[AiriVoice] raw_message: {getattr(event, 'raw_message', '无 raw_message')}")
     
-        # 方法1：检查 event.reply 或 event.quoted_message（部分适配器支持）
-        if hasattr(event, 'reply') and event.reply:
-            quoted_msg = event.reply
-        elif hasattr(event, 'quoted_message') and event.quoted_message:
-            quoted_msg = event.quoted_message
-    
-        # 方法2：如果上面没有，从 event.chain 中找 Reply segment 并拉取
-        if not quoted_msg and hasattr(event, 'chain'):
-            for seg in event.chain:
-                if seg.type == 'reply':
-                    reply_id = seg.data.get('id')
-                    if reply_id:
-                        try:
-                            # 通过 bot API 拉取被引用消息
-                            quoted_msg = await self.context.bot.get_msg(message_id=reply_id)
-                            break
-                        except Exception as e:
-                            logger.error(f"[AiriVoice] 拉取引用消息失败: {e}")
-                            yield event.plain_result("无法获取引用的消息内容，请稍后再试")
-                            return
-    
-        if not quoted_msg:
-            yield event.plain_result("请先引用（回复）一条语音消息，再使用 voice.add 名字")
+        # 从 raw_message 提取 reply id
+        raw_msg = getattr(event, 'raw_message', '') or ''
+        reply_match = re.search(r'\[CQ:reply,id=(\d+)\]', raw_msg)
+        if not reply_match:
+            yield event.plain_result("请先引用（回复）一条语音消息，再使用 voice.add 名字\n（长按语音 → 回复/引用）")
             return
     
+        reply_id = int(reply_match.group(1))
+        logger.info(f"[AiriVoice] 检测到引用消息 ID: {reply_id}")
+    
+        try:
+            # 拉取被引用消息完整内容
+            quoted_msg = await self.context.bot.get_msg(message_id=reply_id)
+            logger.debug(f"[AiriVoice] get_msg 成功: {quoted_msg}")
+        except Exception as e:
+            logger.error(f"[AiriVoice] get_msg 失败: {e}")
+            yield event.plain_result("无法获取引用的消息内容，请稍后再试")
+            return
+    
+        # 从 quoted_msg 中找 record
+        voice_segment = None
+        # 假设 quoted_msg.message 是 CQ 码字符串或 list
+        quoted_raw = getattr(quoted_msg, 'message', '') or ''
+        if isinstance(quoted_raw, str):
+            # 从 CQ 码字符串找 record
+            record_match = re.search(r'\[CQ:record,file=([^,\]]+)', quoted_raw)
+            if record_match:
+                file_id = record_match.group(1)
+                try:
+                    voice_data = await self.context.bot.download_file(file_id)
+                    logger.info(f"[AiriVoice] 从 CQ 码下载语音 file_id: {file_id}")
+                except Exception as e:
+                    logger.error(f"[AiriVoice] 下载失败: {e}")
+                    yield event.plain_result("无法下载引用的语音文件")
+                    return
+                voice_data = voice_data
+        else:
+            # 如果是 segment list
+            for seg in quoted_raw:
+                if seg.type == 'record':
+                    voice_segment = seg
+                    break
+    
+        if 'voice_data' not in locals():
+            yield event.plain_result("引用的消息中没有语音或无法提取")
+            return
+    
+        # 提取名字
         args = (event.message_str or "").strip().split(maxsplit=1)
         if len(args) < 2:
             yield event.plain_result("用法：voice.add 名字\n请引用一条语音消息")
@@ -176,43 +199,7 @@ class AiriVoice(Star):
             yield event.plain_result("名字不能为空")
             return
     
-        # 从 quoted_msg 中找 Record segment
-        voice_segment = None
-    
-        # 优先用 quoted_msg.chain 或 quoted_msg.message
-        msg_chain = getattr(quoted_msg, 'chain', None) or getattr(quoted_msg, 'message', None) or []
-        for seg in msg_chain:
-            if seg.type == 'record':
-                voice_segment = seg
-                break
-    
-        if not voice_segment:
-            yield event.plain_result("引用的消息中没有语音哦～请引用一条语音消息")
-            return
-    
-        # 获取语音数据
-        voice_data = None
-        if hasattr(voice_segment, 'data') and voice_segment.data:
-            voice_data = voice_segment.data
-        elif 'file' in voice_segment.data:
-            file_id = voice_segment.data.get('file')
-            if file_id:
-                try:
-                    # 通过 bot 下载语音
-                    voice_data = await self.context.bot.download_file(file_id)
-                except Exception as e:
-                    logger.error(f"[AiriVoice] 下载语音失败: {e}")
-                    yield event.plain_result("无法下载引用的语音文件")
-                    return
-        else:
-            yield event.plain_result("无法获取语音数据（不支持的语音格式）")
-            return
-    
-        if not voice_data:
-            yield event.plain_result("语音数据为空，无法保存")
-            return
-    
-        # 保存为 silk 文件
+        # 保存
         save_name = f"{name}.silk"
         save_path = self.voice_dir / save_name
     
@@ -229,7 +216,7 @@ class AiriVoice(Star):
     
             yield event.plain_result(f"已保存语音为 '{keyword}'！\n后续直接输入 {keyword} 即可触发发送～")
         except Exception as e:
-            logger.error(f"[AiriVoice] 保存语音失败: {e}", exc_info=True)
+            logger.error(f"[AiriVoice] 保存失败: {e}", exc_info=True)
             yield event.plain_result(f"保存失败：{str(e)}")
 
     @filter.command("voice.list")
