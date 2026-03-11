@@ -8,7 +8,7 @@ import re
 
 ALLOWED_EXT = {'.mp3', '.wav', '.ogg', '.silk', '.amr'}
 
-@register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传）", "1.5", "https://github.com/Lidure/astrbot_plugin_airi_voice")
+@register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传 + 引用保存）", "1.5", "https://github.com/Lidure/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -33,7 +33,7 @@ class AiriVoice(Star):
         logger.info(f"[AiriVoice] 当前触发模式：{self.trigger_mode}")
 
         self._load_web_voices(config)
-        self.last_pool_len = len(config.get("extra_voice_pool", [])) if config else 0  # 用于检测配置变化
+        self.last_pool_len = len(config.get("extra_voice_pool", [])) if config else 0
 
         logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
 
@@ -108,7 +108,7 @@ class AiriVoice(Star):
         if not text:
             return
 
-        # 自动检测配置变化（如果 pool 变长，说明有新上传，自动刷新）
+        # 自动检测配置变化（网页上传后自动刷新）
         current_pool_len = len(self.config.get("extra_voice_pool", [])) if self.config else 0
         if current_pool_len > self.last_pool_len:
             logger.info("[AiriVoice] 检测到网页配置变化，自动刷新语音列表")
@@ -134,6 +134,76 @@ class AiriVoice(Star):
         except Exception as e:
             logger.error(f"[AiriVoice] 发送失败 '{keyword}': {str(e)}", exc_info=True)
             yield event.plain_result(f"语音发送失败：{str(e)}")
+
+    @filter.command("voice.add")
+    async def add_voice(self, event: AstrMessageEvent):
+        """引用一条语音消息 + voice.add 名字 → 保存为 silk 文件"""
+        if not event.quote_message:
+            yield event.plain_result("请引用一条语音消息后再使用 voice.add 名字")
+            return
+
+        args = (event.message_str or "").strip().split(maxsplit=1)
+        if len(args) < 2:
+            yield event.plain_result("用法：voice.add 名字\n请引用一条语音消息")
+            return
+
+        name = args[1].strip()
+        if not name:
+            yield event.plain_result("名字不能为空")
+            return
+
+        # 从引用消息中找 Record（语音）segment
+        voice_segment = None
+        for seg in event.quote_message.chain:
+            if isinstance(seg, Record):
+                voice_segment = seg
+                break
+
+        if not voice_segment:
+            yield event.plain_result("引用的消息中没有语音哦～请引用一条语音消息")
+            return
+
+        # 优先尝试获取 silk 数据（QQ 语音通常是 silk 格式）
+        voice_data = None
+        if hasattr(voice_segment, 'data') and voice_segment.data:
+            voice_data = voice_segment.data
+        elif hasattr(voice_segment, 'file') and voice_segment.file:
+            # 如果是 file 路径，读取内容
+            try:
+                with open(voice_segment.file, 'rb') as f:
+                    voice_data = f.read()
+            except Exception as e:
+                logger.error(f"读取引用语音文件失败: {e}")
+                yield event.plain_result("无法读取引用的语音文件")
+                return
+        else:
+            yield event.plain_result("无法获取语音数据（不支持的语音格式）")
+            return
+
+        if not voice_data:
+            yield event.plain_result("语音数据为空，无法保存")
+            return
+
+        # 保存为 silk 文件（即使原格式不是 silk，也强制保存为 .silk 后缀）
+        save_name = f"{name}.silk"
+        save_path = self.voice_dir / save_name
+
+        try:
+            with open(save_path, 'wb') as f:
+                f.write(voice_data)
+            logger.info(f"[AiriVoice] 成功保存语音：{save_name} → {save_path}")
+
+            # 加入 voice_map
+            keyword = name.strip()
+            if keyword in self.voice_map:
+                logger.warning(f"[AiriVoice] 关键词冲突：'{keyword}' 已存在，将覆盖")
+            self.voice_map[keyword] = str(save_path)
+            self.sorted_keys = sorted(self.voice_map.keys())
+
+            yield event.plain_result(f"已保存语音为 '{keyword}'！\n后续直接输入 {keyword} 即可触发发送～")
+        except Exception as e:
+            logger.error(f"[AiriVoice] 保存语音失败: {e}", exc_info=True)
+            yield event.plain_result(f"保存失败：{str(e)}")
 
     @filter.command("voice.list")
     async def list_voices(self, event: AstrMessageEvent):
