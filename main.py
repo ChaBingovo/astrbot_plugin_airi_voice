@@ -138,21 +138,23 @@ class AiriVoice(Star):
     @filter.command("voice.add")
     async def add_voice(self, event: AstrMessageEvent):
         """引用一条语音消息 + voice.add 名字 → 保存为 silk 文件"""
-        # aiocqhttp 中引用消息通常在 event.reply 或 event.message 的 Reply segment
+        # 先检查是否有引用（reply）
         quoted_msg = None
     
-        # 尝试从 event.reply 获取（部分适配器支持）
+        # 方法1：检查 event.reply 或 event.quoted_message（部分适配器支持）
         if hasattr(event, 'reply') and event.reply:
             quoted_msg = event.reply
-        else:
-            # 遍历消息链找 Reply segment
-            for seg in event.message:
+        elif hasattr(event, 'quoted_message') and event.quoted_message:
+            quoted_msg = event.quoted_message
+    
+        # 方法2：如果上面没有，从 event.chain 中找 Reply segment 并拉取
+        if not quoted_msg and hasattr(event, 'chain'):
+            for seg in event.chain:
                 if seg.type == 'reply':
-                    # 获取 reply.id，然后拉取完整消息
                     reply_id = seg.data.get('id')
                     if reply_id:
                         try:
-                            # 使用 bot API 拉取被引用消息
+                            # 通过 bot API 拉取被引用消息
                             quoted_msg = await self.context.bot.get_msg(message_id=reply_id)
                             break
                         except Exception as e:
@@ -176,7 +178,10 @@ class AiriVoice(Star):
     
         # 从 quoted_msg 中找 Record segment
         voice_segment = None
-        for seg in quoted_msg.message:  # quoted_msg.message 是消息链
+    
+        # 优先用 quoted_msg.chain 或 quoted_msg.message
+        msg_chain = getattr(quoted_msg, 'chain', None) or getattr(quoted_msg, 'message', None) or []
+        for seg in msg_chain:
             if seg.type == 'record':
                 voice_segment = seg
                 break
@@ -190,15 +195,15 @@ class AiriVoice(Star):
         if hasattr(voice_segment, 'data') and voice_segment.data:
             voice_data = voice_segment.data
         elif 'file' in voice_segment.data:
-            # 如果是 file_id，尝试下载
-            file_id = voice_segment.data['file']
-            try:
-                # 使用 bot API 下载语音
-                voice_data = await self.context.bot.download_file(file_id)
-            except Exception as e:
-                logger.error(f"[AiriVoice] 下载语音失败: {e}")
-                yield event.plain_result("无法下载引用的语音文件")
-                return
+            file_id = voice_segment.data.get('file')
+            if file_id:
+                try:
+                    # 通过 bot 下载语音
+                    voice_data = await self.context.bot.download_file(file_id)
+                except Exception as e:
+                    logger.error(f"[AiriVoice] 下载语音失败: {e}")
+                    yield event.plain_result("无法下载引用的语音文件")
+                    return
         else:
             yield event.plain_result("无法获取语音数据（不支持的语音格式）")
             return
