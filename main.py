@@ -15,14 +15,14 @@ class AiriVoice(Star):
         self.plugin_dir = Path(__file__).parent
         self.voice_dir = self.plugin_dir / "voices"
     
-        # 优先使用 context 提供的插件数据目录（最兼容）
+        # 优先使用 context 提供的插件数据目录（如果有）
         if hasattr(context, 'plugin_data_dir'):
             self.data_dir = Path(context.plugin_data_dir)
             logger.info("[AiriVoice] 使用 context.plugin_data_dir")
         else:
-            # fallback：从插件目录向上爬到 AstrBot 根，再进 data/plugin_data
-            # 你的结构：plugins/插件名/ → data/plugins/ → AstrBot/ → data/
-            self.data_dir = self.plugin_dir.parent.parent / "data" / "plugin_data" / "astrbot_plugin_airi_voice"
+            # fallback：从插件目录向上爬到 AstrBot 根
+            # 结构：plugins/插件名/ → data/plugins/ → AstrBot/ → data/plugin_data/...
+            self.data_dir = self.plugin_dir.parent.parent.parent / "data" / "plugin_data" / "astrbot_plugin_airi_voice"
             logger.warning("[AiriVoice] context 无 plugin_data_dir，使用 fallback 路径")
     
         self.extra_voice_dir = self.data_dir / "extra_voices"
@@ -30,7 +30,6 @@ class AiriVoice(Star):
     
         logger.info(f"[AiriVoice] 数据目录：{self.data_dir}")
     
-        # 其余代码不变...
         self.voice_map: Dict[str, str] = {}
         self.sorted_keys: list[str] = []
     
@@ -46,7 +45,6 @@ class AiriVoice(Star):
         self._load_web_voices(config)
         self.last_pool_len = len(config.get("extra_voice_pool", [])) if config else 0
     
-        logger.info(f"[AiriVoice] 数据目录：{self.data_dir}")
         logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
 
     def _load_local_voices(self):
