@@ -1,7 +1,7 @@
-from astrbot.api.all import *
+from astrbot.api.star import Star, Context
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import logger
-from astrbot.core.star.star_tools import StarTools
+from astrbot.api.star.star_tools import StarTools  # 正确路径
 from pathlib import Path
 from typing import Dict
 import re
@@ -9,28 +9,28 @@ import re
 @register("airi_voice", "lidure", "输入关键词发送对应语音（本地 + 网页上传）", "1.4", "https://github.com/Lidure/astrbot_plugin_airi_voice")
 class AiriVoice(Star):
     def __init__(self, context: Context, config: dict = None):
-            super().__init__(context)
-    
-            self.plugin_dir = Path(__file__).parent
-            self.voice_dir = self.plugin_dir / "voices"
-    
-            self.data_dir = Path(StarTools.get_data_dir("astrbot_plugin_airi_voice"))
-            self.extra_voice_dir = self.data_dir / "extra_voices"
-            self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
-    
-            self.voice_map: Dict[str, str] = {}
-            self.sorted_keys: list[str] = []
-    
-            self._load_local_voices()
-    
-            # 关键：读取 trigger_mode 配置（默认 direct）
-            self.config = config
-            self.trigger_mode = (config or {}).get("trigger_mode", "direct")
-            logger.info(f"[AiriVoice] 当前触发模式：{self.trigger_mode}")
-    
-            self._load_web_voices(config)
-    
-            logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
+        super().__init__(context)
+            
+        self.plugin_dir = Path(__file__).parent
+        self.voice_dir = self.plugin_dir / "voices"
+            
+        self.data_dir = Path(StarTools.get_data_dir("astrbot_plugin_airi_voice"))
+        self.extra_voice_dir = self.data_dir / "extra_voices"
+        self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
+            
+        self.voice_map: Dict[str, str] = {}
+        self.sorted_keys: list[str] = []
+            
+        self._load_local_voices()
+            
+        # 关键：读取 trigger_mode 配置（默认 direct）
+        self.config = config
+        self.trigger_mode = (config or {}).get("trigger_mode", "direct")
+        logger.info(f"[AiriVoice] 当前触发模式：{self.trigger_mode}")
+            
+        self._load_web_voices(config)
+            
+        logger.info(f"[AiriVoice] 初始化完成，当前语音总数：{len(self.voice_map)} 个")
 
     def _load_local_voices(self):
         """扫描本地 voices/ 文件夹"""
@@ -56,6 +56,7 @@ class AiriVoice(Star):
 
     def _load_web_voices(self, config: dict = None):
         """从网页配置加载额外语音（使用相对路径拼接）"""
+        ALLOWED_EXT = {'.mp3', '.wav', '.ogg', '.silk', '.amr'}
         if config is None:
             logger.info("[AiriVoice] 未收到 config，不加载网页语音")
             return
@@ -83,6 +84,9 @@ class AiriVoice(Star):
                 continue
 
             if abs_path.exists() and abs_path.is_file():
+                if abs_path.suffix.lower() not in ALLOWED_EXT:
+                    logger.warning(f"[AiriVoice] 忽略非音频文件：{abs_path}")
+                    continue
                 keyword = abs_path.stem.strip()
                 if keyword in self.voice_map:
                     logger.warning(f"[AiriVoice] 网页关键词冲突：'{keyword}' 已存在，将覆盖")
