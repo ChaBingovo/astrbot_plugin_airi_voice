@@ -20,9 +20,9 @@
     "default": ""
   },
   "extra_voice_pool": {
-    "description": "额外语音文件池（内部维护，请勿手动编辑）",
-    "hint": "存储通过 /voice.add 添加的语音文件相对路径。网页上传功能请确保文件在 data 目录下。",
-    "type": "array",
+    "description": "额外语音文件池（内部维护）",
+    "hint": "存储通过 /voice.add 添加的语音文件相对路径。请勿手动编辑此项。",
+    "type": "list",
     "items": {
       "type": "string"
     },
