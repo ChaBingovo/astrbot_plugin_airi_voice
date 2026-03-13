@@ -279,8 +279,51 @@ class AiriVoice(Star):
 
     @filter.command("voice.add")
     async def voice_add(self, event: AstrMessageEvent, name: str):
-        # ... (前面的权限和下载代码保持不变) ...
+        """
+        通过引用语音消息添加新语音
+        用法：引用一条语音消息，然后发送 /voice.add 名字
+        """
+        # 权限检查
+        if not self._check_admin(event):
+            yield event.plain_result("? 权限不足：此命令仅限管理员使用")
+            return
 
+        # 检查是否有引用消息
+        if not self._get_reply_id(event):
+            yield event.plain_result("? 请引用一条语音消息后再使用此命令")
+            return
+
+        # 检查名字是否合法
+        if not name or name.strip() == "":
+            yield event.plain_result("? 请提供语音名称，例如：/voice.add 打卡啦摩托")
+            return
+
+        name = name.strip()
+
+        # 检查是否已存在
+        if name in self.voice_map:
+            yield event.plain_result(f"?? 语音「{name}」已存在，如需覆盖请先删除旧语音")
+            return
+
+        # 获取音频 URL
+        audio_url = await self._get_audio_url(event)
+        if not audio_url:
+            yield event.plain_result("? 未能从引用的消息中提取到音频，请确保引用的是语音消息")
+            return
+
+        logger.debug(f"[AiriVoice] 获取到音频 URL: {audio_url}")
+
+        # 下载音频
+        audio_data = await self._download_audio(audio_url)
+        if not audio_data:
+            yield event.plain_result("? 音频下载失败，请稍后重试")
+            return
+
+        # 确保目录存在
+        self.extra_voice_dir.mkdir(parents=True, exist_ok=True)
+
+        # 确定文件扩展名
+        ext = self._get_file_ext_from_url(audio_url)
         # 保存文件
         file_path = self.extra_voice_dir / f"{name}{ext}"
         try:
