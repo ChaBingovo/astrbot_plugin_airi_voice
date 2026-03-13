@@ -188,7 +188,7 @@ class AiriVoice(Star):
         # 配置
         self.config = config or {}
         self.trigger_mode = self.config.get("trigger_mode", "direct")
-        if self.trigger_mode not in {"prefix", "direct"}:
+        if self.trigger_mode not in {"prefix", "direct", "llm"}:
             logger.warning(f"[AiriVoice] 无效 trigger_mode，强制使用 direct")
             self.trigger_mode = "direct"
         
@@ -227,22 +227,23 @@ class AiriVoice(Star):
         
         self.last_pool_len = len(self.config.get("extra_voice_pool", []))
         
-        # 注册供 LLM 使用的语音相关工具
-        llm_tools = []
-        if self.llm_select_mode == "list":
-            llm_tools.append(AiriListAllVoicesTool(plugin=self))
-        else:
-            llm_tools.append(AiriSearchVoicesTool(plugin=self))
-        llm_tools.append(AiriSendVoiceTool(plugin=self))
+        # 仅在触发模式为 llm 时，注册供 LLM 使用的语音相关工具
+        if self.trigger_mode == "llm":
+            llm_tools = []
+            if self.llm_select_mode == "list":
+                llm_tools.append(AiriListAllVoicesTool(plugin=self))
+            else:
+                llm_tools.append(AiriSearchVoicesTool(plugin=self))
+            llm_tools.append(AiriSendVoiceTool(plugin=self))
 
-        try:
-            # AstrBot >= v4.5.1
-            self.context.add_llm_tools(*llm_tools)
-            logger.info(
-                f"[AiriVoice] 已为 LLM 注册 {len(llm_tools)} 个语音工具，模式：{self.llm_select_mode}"
-            )
-        except Exception as e:
-            logger.error(f"[AiriVoice] 注册 LLM 工具失败：{e}")
+            try:
+                # AstrBot >= v4.5.1
+                self.context.add_llm_tools(*llm_tools)
+                logger.info(
+                    f"[AiriVoice] 已为 LLM 注册 {len(llm_tools)} 个语音工具，模式：{self.llm_select_mode}"
+                )
+            except Exception as e:
+                logger.error(f"[AiriVoice] 注册 LLM 工具失败：{e}")
         
         logger.info(f"[AiriVoice] 初始化完成，共 {len(self.voice_map)} 个语音，权限模式：{self.admin_mode}")
 
