@@ -129,14 +129,30 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
         if not path:
             return f"语音「{name}」不存在，请先使用列出/搜索工具确认可用名称。"
 
-        # 这里不直接发送语音，而是告知 LLM：
-        # 1. 已确认该语音存在
-        # 2. 请在接下来的对话中单独发送该语音名称，从而触发插件的关键词处理器实际发送语音
-        return (
-            f"已确认语音「{name}」存在。"
-            f"请在接下来的对话中单独发送这条语音的名称「{name}」，"
-            f"插件会根据该名称实际向用户发送语音。"
-        )
+        # 从运行上下文中拿到 Agent 的上下文和事件，走主动消息发送流程
+        try:
+            agent_ctx = context.context.context
+            event = context.context.event
+        except Exception:
+            agent_ctx = None
+            event = None
+
+        if agent_ctx is None or event is None:
+            return f"无法获取当前会话上下文，未能发送语音「{name}」。"
+
+        try:
+            # 主动消息发送，等价于在命令处理器中调用 self.context.send_message
+            await agent_ctx.send_message(
+                event.unified_msg_origin, [Record.fromFileSystem(path)]
+            )
+            logger.debug(f"[AiriVoice] LLM 工具发送语音：'{name}' → {path}")
+            return f"已向当前会话发送语音「{name}」。"
+        except FileNotFoundError as e:
+            logger.error(f"[AiriVoice] 文件不存在（LLM 工具） '{name}': {e}")
+            return f"语音文件不存在：{name}"
+        except Exception as e:
+            logger.error(f"[AiriVoice] LLM 工具发送失败 '{name}': {e}")
+            return f"语音发送失败：{type(e).__name__}"
 
 
 @register(
