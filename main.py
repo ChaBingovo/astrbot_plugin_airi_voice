@@ -95,12 +95,10 @@ class AiriSearchVoicesTool(FunctionTool[AstrAgentContext]):
 
 @dataclass
 class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
-    """向当前会话发送指定名称的语音。"""
+    """为 LLM 提供语音发送指令信息，不直接向用户发送消息。"""
 
     name: str = "airi_send_voice"
-    description: str = (
-        "根据指定的语音名称，向当前会话直接发送对应的语音消息。"
-    )
+    description: str = "根据指定的语音名称，返回用于触发语音发送的指令文本，本插件本身不主动向用户发送消息。"
     parameters: dict = Field(
         default_factory=lambda: {
             "type": "object",
@@ -129,32 +127,10 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
         if not path:
             return f"语音「{name}」不存在，请先使用列出/搜索工具确认可用名称。"
 
-        # 从运行上下文中拿到 Agent 的上下文和事件，走主动消息发送流程
-        try:
-            agent_ctx = context.context.context
-            event = context.context.event
-        except Exception:
-            agent_ctx = None
-            event = None
-
-        if agent_ctx is None or event is None:
-            return f"无法获取当前会话上下文，未能发送语音「{name}」。"
-
-        try:
-            # 主动消息发送，等价于在命令处理器中调用 self.context.send_message
-            await agent_ctx.send_message(
-                event.unified_msg_origin,
-                MessageChain([Record.fromFileSystem(path)]),
-            )
-            logger.debug(f"[AiriVoice] LLM 工具发送语音：'{name}' → {path}")
-            # 返回尽量简短的提示，避免在对话中重复说明
-            return ""
-        except FileNotFoundError as e:
-            logger.error(f"[AiriVoice] 文件不存在（LLM 工具） '{name}': {e}")
-            return f"语音文件不存在：{name}"
-        except Exception as e:
-            logger.error(f"[AiriVoice] LLM 工具发送失败 '{name}': {e}")
-            return f"语音发送失败：{type(e).__name__}"
+        # 为了在插件层面“硬限制仅被动回复”，这里不直接发送语音，
+        # 只返回一个简单的推荐语音名称，供 LLM 在最终回复中直接发送该名称，
+        # 由本插件的 voice_handler 被动触发语音发送。
+        return name
 
 
 @register(
