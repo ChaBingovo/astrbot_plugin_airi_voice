@@ -8,7 +8,7 @@ from pydantic import Field
 from pydantic.dataclasses import dataclass
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import AstrMessageEvent, filter, MessageChain
 from astrbot.api.message_components import Record, Reply
 from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.core.agent.run_context import ContextWrapper
@@ -143,7 +143,8 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
         try:
             # 主动消息发送，等价于在命令处理器中调用 self.context.send_message
             await agent_ctx.send_message(
-                event.unified_msg_origin, [Record.fromFileSystem(path)]
+                event.unified_msg_origin,
+                MessageChain([Record.fromFileSystem(path)]),
             )
             logger.debug(f"[AiriVoice] LLM 工具发送语音：'{name}' → {path}")
             return f"已向当前会话发送语音「{name}」。"
