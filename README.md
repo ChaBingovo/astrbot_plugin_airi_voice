@@ -1,4 +1,16 @@
+<div align="center">
 
+# 🌸 Airi Voice
+
+> **输入关键词 → Airi 立刻回你一段可爱语音！**  
+> 让聊天瞬间充满灵魂与温度的轻量级语音插件。
+
+[![AstrBot](https://img.shields.io/badge/AstrBot-Plugin-brightgreen?style=for-the-badge&logo=github)](https://github.com/Soulter/AstrBot)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue?style=for-the-badge&logo=python)](https://www.python.org/)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-2.4-orange?style=for-the-badge)]()
+
+</div>
 
 ---
 
@@ -9,10 +21,10 @@
 | 🚀 **零门槛触发** | 直接输入文件名（去后缀）即可触发，无需复杂指令 |
 | 🎵 **全格式支持** | 完美支持 `.mp3`, `.wav`, `.ogg`, `.silk`, `.amr` 等主流格式 |
 | ⚡ **热加载机制** | 网页上传新语音后自动识别，无需重启机器人 |
-| 💬 **聊天中添加** | 引用语音消息发送命令即可添加，无需进入后台 |
 | 🛡️ **智能防刷屏** | 内置分页列表命令，再多语音也不怕消息爆炸 |
 | 🔐 **权限精细控制** | 支持白名单/管理员模式，防止语音功能被滥用 |
 | 🎛️ **双触发模式** | 灵活切换「直接模式」与「前缀模式」，适应不同群聊环境 |
+| 🆕 **引用添加语音** | 聊天中引用语音消息，一条命令即可添加新语音 |
 
 ---
 
@@ -61,26 +73,28 @@
 
 我们提供三种优雅的方式来扩充语音库：
 
-### 🅰️ 方式一：聊天中快速添加（推荐 ✨）
-*最快捷的方式，聊天中即可完成！*
-
-1. 在聊天中**引用**一条语音消息
-2. 发送命令：`/voice.add 关键词`
-3. 完成！立即可用
-
-> **示例：**
-> 1. 朋友发送了一条语音："早上好"
-> 2. 你引用这条语音，发送：`/voice.add 早上好`
-> 3. 以后任何人发送 `早上好`，Airi 都会回复同样的语音！
-
-### 🅱️ 方式二：网页上传
-*最安全的方式，支持热更新。*
+### 🅰️ 方式一：网页上传（推荐 ✨）
+*最简单、最安全的方式，支持热更新。*
 
 1. 进入 **AstrBot 网页后台** → **插件管理** → **Airi Voice** → **配置**
 2. 找到 **「额外语音文件池」** 区域
 3. 直接上传你的 `.mp3` / `.wav` 等音频文件
 4. **文件名（不含后缀）** 即为触发关键词
 5. 上传成功后，立即生效！
+
+### 🅱️ 方式二：聊天中引用添加（新增 🆕）
+*最快捷的方式，聊天中即可完成！*
+
+1. 在聊天中**引用**一条语音消息（可以是别人发的，也可以是机器人发的）
+2. 发送命令：`/voice.add 关键词`
+3. 完成！立即可用该关键词触发语音
+
+> **示例：**
+> 1. 朋友发送了一条语音："早上好"
+> 2. 你引用这条语音，发送：`/voice.add 早上好`
+> 3. 以后任何人发送 `早上好`，Airi 都会回复同样的语音！
+
+> ⚠️ **注意：** 此命令需要管理员权限
 
 ### 🅲 方式三：本地部署
 *适合批量导入或服务器运维人员。*
@@ -107,27 +121,43 @@
 | `/voice.list [页码]` | 全员 | 查看可用语音列表（支持分页） |
 | `/voice.help` | 全员 | 显示帮助信息与当前模式 |
 | `/voice.check` | 全员 | 检查当前用户权限状态 |
-| `/voice.add 名字` | 🔒 管理员 | **引用语音消息**添加新语音 ⭐ |
-| `/voice.delete 名字` | 🔒 管理员 | 删除通过 voice.add 添加的语音 |
+| `/voice.add 名字` | 🔒 管理员 | **引用语音消息**添加新语音 🆕 |
+| `/voice.delete 名字` | 🔒 管理员 | 删除通过 voice.add 添加的语音 🆕 |
 | `/voice.reload` | 🔒 管理员 | 强制重新扫描并加载语音列表 |
 
 ---
 
-## 🔐 权限配置
+## 🔐 权限说明
 
-管理员命令需要相应权限才能使用。在插件配置中设置 `admin_mode`：
+| 权限模式 | 说明 | 配置方式 |
+| :--- | :--- | :--- |
+| `all` | 所有人可使用管理命令 | 插件配置中设置 `admin_mode: all` |
+| `admin` | 仅平台管理员可用 | 插件配置中设置 `admin_mode: admin` |
+| `whitelist` 👈 *默认* | 仅白名单用户可用 | 在 `admin_whitelist` 中添加用户 ID 或昵称 |
 
-| 模式 | 说明 |
-| :--- | :--- |
-| `whitelist` | 仅白名单用户可用（默认） |
-| `admin` | 仅平台管理员可用 |
-| `all` | 所有人可用（不推荐） |
-
-在 `admin_whitelist` 中添加用户 ID 或昵称，每行一个。
+> 💡 使用 `/voice.check` 可查看当前用户的权限状态
 
 ---
 
+## 📁 文件存储说明
 
+| 来源 | 存储位置 | 插件更新后 |
+| :--- | :--- | :--- |
+| 本地 `voices/` 目录 | `plugins/astrbot_plugin_airi_voice/voices/` | ⚠️ 可能被覆盖 |
+| 网页上传 | `data/plugin_data/astrbot_plugin_airi_voice/extra_voices/` | ✅ 持久保存 |
+| `/voice.add` 添加 | `data/plugin_data/astrbot_plugin_airi_voice/extra_voices/` | ✅ 持久保存 |
+
+> 💡 推荐使用网页上传或 `/voice.add` 方式，确保语音文件不会因插件更新而丢失
+
+---
+
+<div align="center">
+
+![](https://github.com/user-attachments/assets/a01804f7-7769-4688-9caa-4f7da2796d8d)
+
+*配置简单，响应迅速，让互动更有趣*
+
+</div>
 
 ---
 
@@ -142,3 +172,10 @@
 
 ---
 
+<div align="center">
+
+**Made with 💕 by [lidure](https://github.com/Lidure)**  
+📅 最后更新：2026.03  
+📜 遵循 MIT 协议开源
+
+</div>
