@@ -11,9 +11,9 @@ from astrbot.api.event import AstrMessageEvent, MessageChain
 
 # ================= 插件元数据 =================
 __plugin_name__ = "airi_voice"
-__version__ = "2.6.0-Persistent"
+__version__ = "2.6.1-Fix"
 __author__ = "lidure"
-__description__ = "爱理语音插件：支持关键词触发、引用添加语音、**配置永久保存**。"
+__description__ = "爱理语音插件：支持关键词触发、引用添加语音、配置永久保存。"
 
 # ================= 全局状态 =================
 PLUGIN_PATH: Optional[Path] = None
@@ -22,7 +22,7 @@ EXTRA_VOICE_DIR: Optional[Path] = None
 CONFIG: Dict[str, Any] = {}
 VOICE_MAP: Dict[str, str] = {}  # {keyword: file_path}
 
-# ================= 配置管理 (核心修复部分) =================
+# ================= 配置管理 =================
 
 def _get_config_path() -> Path:
     """获取配置文件路径"""
@@ -37,9 +37,14 @@ def load_config():
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 CONFIG = json.load(f)
+            # 确保所有必要键存在
+            default = _get_default_config()
+            for key, value in default.items():
+                if key not in CONFIG:
+                    CONFIG[key] = value
             logger.info(f"[{__plugin_name__}] 配置文件加载成功")
         except Exception as e:
-            logger.error(f"[{__plugin_name__}] 配置文件损坏，重置为默认: {e}")
+            logger.error(f"[{__plugin_name__}] 配置文件损坏，重置为默认：{e}")
             CONFIG = _get_default_config()
             save_config()
     else:
@@ -50,10 +55,10 @@ def load_config():
 def _get_default_config() -> Dict[str, Any]:
     """返回默认配置字典"""
     return {
-        "extra_voice_pool": [],       # 用户添加的语音关键词列表 (关键！)
-        "trigger_mode": "direct",     # direct: 直接发送关键词; prefix: 需要 #voice 前缀
-        "admin_mode": "whitelist",    # all: 所有人; admin: 仅管理员; whitelist: 白名单
-        "admin_whitelist": []         # 白名单用户ID或昵称
+        "extra_voice_pool": [],
+        "trigger_mode": "direct",
+        "admin_mode": "whitelist",
+        "admin_whitelist": []
     }
 
 def save_config():
@@ -64,7 +69,7 @@ def save_config():
             json.dump(CONFIG, f, ensure_ascii=False, indent=4)
         logger.debug(f"[{__plugin_name__}] 配置已保存到硬盘")
     except Exception as e:
-        logger.error(f"[{__plugin_name__}] 保存配置失败: {e}")
+        logger.error(f"[{__plugin_name__}] 保存配置失败：{e}")
 
 # ================= 语音库管理 =================
 
@@ -73,16 +78,15 @@ def refresh_voice_map():
     global VOICE_MAP
     VOICE_MAP = {}
     
-    # 1. 扫描插件自带的 voices 目录 (内置语音)
+    # 1. 扫描插件自带的 voices 目录
     local_dir = PLUGIN_PATH / "voices"
     if local_dir.exists():
         for file in local_dir.iterdir():
             if file.is_file() and file.suffix.lower() in ['.mp3', '.wav', '.ogg', '.silk', '.amr']:
                 VOICE_MAP[file.stem] = str(file)
     
-    # 2. 扫描用户添加的 extra_voices 目录 (用户语音)
+    # 2. 扫描用户添加的 extra_voices 目录
     if EXTRA_VOICE_DIR and EXTRA_VOICE_DIR.exists():
-        # 获取配置中保存的关键词列表
         saved_pool = CONFIG.get("extra_voice_pool", [])
         
         logger.info(f"[{__plugin_name__}] 正在加载用户语音池，共 {len(saved_pool)} 项...")
@@ -90,7 +94,6 @@ def refresh_voice_map():
         for file in EXTRA_VOICE_DIR.iterdir():
             if file.is_file() and file.suffix.lower() in ['.mp3', '.wav', '.ogg', '.silk', '.amr']:
                 key = file.stem
-                # 策略：如果池子为空，视为允许所有；否则只允许池子里的
                 if not saved_pool or key in saved_pool:
                     VOICE_MAP[key] = str(file)
     
@@ -111,10 +114,10 @@ async def download_file(url: str, save_path: Path) -> bool:
                             f.write(chunk)
                     return True
                 else:
-                    logger.error(f"[{__plugin_name__}] 下载失败，状态码: {resp.status}")
+                    logger.error(f"[{__plugin_name__}] 下载失败，状态码：{resp.status}")
                     return False
     except Exception as e:
-        logger.error(f"[{__plugin_name__}] 下载异常: {e}")
+        logger.error(f"[{__plugin_name__}] 下载异常：{e}")
         return False
 
 def check_permission(event: AstrMessageEvent) -> bool:
@@ -124,7 +127,6 @@ def check_permission(event: AstrMessageEvent) -> bool:
     sender_id = event.get_sender_id()
     nickname = event.get_sender_name()
     
-    # 获取管理员列表
     admin_ids = []
     try:
         if hasattr(event, 'context') and hasattr(event.context, 'get_admin_ids'):
@@ -139,7 +141,6 @@ def check_permission(event: AstrMessageEvent) -> bool:
     if mode == "admin":
         return sender_id in admin_ids
     
-    # whitelist 模式
     allow_list = CONFIG.get("admin_whitelist", [])
     return (sender_id in allow_list) or (nickname in allow_list) or (sender_id in admin_ids)
 
@@ -152,20 +153,23 @@ def sanitize_filename(name: str) -> str:
 
 async def handle_message(event: AstrMessageEvent):
     """消息统一入口"""
-    message_chain = event.get_message_chain()
-    text = message_chain.text().strip()
+    try:
+        message_chain = event.get_message_chain()
+        text = message_chain.text().strip()
+    except Exception:
+        return
     
     if not text:
         return
 
-    # --- 1. 命令处理 ---
+    # --- 命令处理 ---
     if text.startswith("/"):
         parts = text.split(maxsplit=1)
-        cmd = parts[0]
+        cmd = parts[0] if parts else ""
         args = parts[1] if len(parts) > 1 else ""
         args_list = args.split() if args else []
 
-        # === /voice.add (关键修改点) ===
+        # === /voice.add ===
         if cmd == "/voice.add":
             if not check_permission(event):
                 await event.send("❌ 权限不足：仅限管理员或白名单用户添加语音。")
@@ -187,7 +191,6 @@ async def handle_message(event: AstrMessageEvent):
                 await event.send("❌ 关键词无效，请使用中文、字母或数字。")
                 return
 
-            # 解析引用消息中的文件
             file_url = None
             file_ext = "mp3"
             ref_chain = ref_msg.get_message_chain()
@@ -207,25 +210,19 @@ async def handle_message(event: AstrMessageEvent):
                 await event.send("❌ 未能在引用的消息中找到语音文件。")
                 return
 
-            # 构建保存路径
             filename = f"{safe_name}.{file_ext}"
             save_path = EXTRA_VOICE_DIR / filename
             
-            logger.info(f"[{__plugin_name__}] 正在下载语音: {filename}")
+            logger.info(f"[{__plugin_name__}] 正在下载语音：{filename}")
             
             if await download_file(file_url, save_path):
-                # ✅ 关键步骤 1: 更新配置内存
                 pool = CONFIG.get("extra_voice_pool", [])
                 if safe_name not in pool:
                     pool.append(safe_name)
                     CONFIG["extra_voice_pool"] = pool
-                    
-                    # ✅ 关键步骤 2: 保存到硬盘 (config.json)
                     save_config()
                 
-                # ✅ 关键步骤 3: 刷新内存映射，立即生效
                 refresh_voice_map()
-                
                 await event.send(f"✅ 语音 `{safe_name}` 添加成功！\n**已永久保存**，重启插件后依然有效。")
             else:
                 await event.send("❌ 语音文件下载失败，请检查链接或网络。")
@@ -243,7 +240,7 @@ async def handle_message(event: AstrMessageEvent):
             name = args_list[0]
             target_file = None
             
-            if EXTRA_VOICE_DIR.exists():
+            if EXTRA_VOICE_DIR and EXTRA_VOICE_DIR.exists():
                 for f in EXTRA_VOICE_DIR.iterdir():
                     if f.stem == name:
                         target_file = f
@@ -251,9 +248,7 @@ async def handle_message(event: AstrMessageEvent):
             
             if target_file:
                 try:
-                    target_file.unlink() # 删除文件
-                    
-                    # ✅ 同步更新配置
+                    target_file.unlink()
                     pool = CONFIG.get("extra_voice_pool", [])
                     if name in pool:
                         pool.remove(name)
@@ -263,7 +258,7 @@ async def handle_message(event: AstrMessageEvent):
                     refresh_voice_map()
                     await event.send(f"🗑️ 语音 `{name}` 已删除。")
                 except Exception as e:
-                    await event.send(f"❌ 删除文件失败: {e}")
+                    await event.send(f"❌ 删除文件失败：{e}")
             else:
                 await event.send(f"❌ 未找到名为 `{name}` 的用户自定义语音。")
             return
@@ -272,15 +267,20 @@ async def handle_message(event: AstrMessageEvent):
         if cmd == "/voice.list":
             page = 1
             if args_list and args_list[0].isdigit():
-                page = int(args_list[0])
+                try:
+                    page = int(args_list[0])
+                except ValueError:
+                    page = 1
             
             keys = sorted(VOICE_MAP.keys())
             total = len(keys)
             per_page = 20
             total_pages = max(1, (total + per_page - 1) // per_page)
             
-            if page < 1: page = 1
-            if page > total_pages: page = total_pages
+            if page < 1:
+                page = 1
+            if page > total_pages:
+                page = total_pages
             
             start_idx = (page - 1) * per_page
             end_idx = start_idx + per_page
@@ -333,65 +333,65 @@ async def handle_message(event: AstrMessageEvent):
             await event.send(f"当前用户权限状态：{status}\n模式：{CONFIG.get('admin_mode')}")
             return
 
-    # --- 2. 语音触发逻辑 ---
+    # --- 语音触发逻辑 ---
     trigger_mode = CONFIG.get("trigger_mode", "direct")
     keyword = text
     
-    # 前缀模式处理
     if trigger_mode == "prefix":
         if keyword.startswith("#voice "):
             keyword = keyword[7:].strip()
         else:
-            return  # 非前缀且不匹配，直接忽略
+            return
     
-    # 匹配并发送
     if keyword in VOICE_MAP:
         file_path = VOICE_MAP[keyword]
         if os.path.exists(file_path):
             try:
                 await event.send_file(file_path)
             except Exception as e:
-                logger.error(f"[{__plugin_name__}] 发送语音失败: {e}")
+                logger.error(f"[{__plugin_name__}] 发送语音失败：{e}")
                 await event.send(f"⚠️ 语音文件存在，但发送失败：{str(e)}")
         else:
-            # 文件丢失，从内存移除
-            logger.warning(f"[{__plugin_name__}] 语音文件丢失: {file_path}")
+            logger.warning(f"[{__plugin_name__}] 语音文件丢失：{file_path}")
             del VOICE_MAP[keyword]
-            # 尝试清理配置中的无效项
-            if keyword in CONFIG.get("extra_voice_pool", []):
-                CONFIG["extra_voice_pool"].remove(keyword)
+            pool = CONFIG.get("extra_voice_pool", [])
+            if keyword in pool:
+                pool.remove(keyword)
+                CONFIG["extra_voice_pool"] = pool
                 save_config()
 
 # ================= 插件入口 =================
 
 def init_plugin(context):
-    """
-    AstrBot v4+ 标准插件入口函数
-    """
+    """AstrBot v4+ 标准插件入口函数"""
     global PLUGIN_PATH, DATA_DIR, EXTRA_VOICE_DIR
     
-    PLUGIN_PATH = Path(__file__).parent
-    logger.info(f"[{__plugin_name__}] 正在初始化...")
-    
-    # 1. 确定数据目录
     try:
-        DATA_DIR = context.get_data_dir()
-        EXTRA_VOICE_DIR = DATA_DIR / "extra_voices"
-    except AttributeError:
-        DATA_DIR = PLUGIN_PATH / "data"
-        EXTRA_VOICE_DIR = DATA_DIR / "extra_voices"
-        logger.warning(f"[{__plugin_name__}] 无法获取框架数据目录，使用插件本地目录: {DATA_DIR}")
-    
-    # 确保目录存在
-    EXTRA_VOICE_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # 2. 加载配置 (从 config.json 读取)
-    load_config()
-    
-    # 3. 构建语音库 (根据配置加载)
-    refresh_voice_map()
-    
-    # 4. 注册消息监听器
-    context.register_event_listener(handle_message)
-    
-    logger.info(f"[{__plugin_name__}] 初始化完成。当前语音数：{len(VOICE_MAP)}")
+        PLUGIN_PATH = Path(__file__).parent
+        logger.info(f"[{__plugin_name__}] 正在初始化...")
+        
+        # 确定数据目录
+        try:
+            DATA_DIR = context.get_data_dir()
+            EXTRA_VOICE_DIR = DATA_DIR / "extra_voices"
+        except AttributeError:
+            DATA_DIR = PLUGIN_PATH / "data"
+            EXTRA_VOICE_DIR = DATA_DIR / "extra_voices"
+            logger.warning(f"[{__plugin_name__}] 无法获取框架数据目录，使用插件本地目录：{DATA_DIR}")
+        
+        # 确保目录存在
+        EXTRA_VOICE_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # 加载配置
+        load_config()
+        
+        # 构建语音库
+        refresh_voice_map()
+        
+        # 注册消息监听器
+        context.register_event_listener(handle_message)
+        
+        logger.info(f"[{__plugin_name__}] 初始化完成。当前语音数：{len(VOICE_MAP)}")
+    except Exception as e:
+        logger.error(f"[{__plugin_name__}] 初始化失败：{e}")
+        raise
