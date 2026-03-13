@@ -147,7 +147,8 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
                 MessageChain([Record.fromFileSystem(path)]),
             )
             logger.debug(f"[AiriVoice] LLM 工具发送语音：'{name}' → {path}")
-            return f"已向当前会话发送语音「{name}」。"
+            # 返回尽量简短的提示，避免在对话中重复说明
+            return ""
         except FileNotFoundError as e:
             logger.error(f"[AiriVoice] 文件不存在（LLM 工具） '{name}': {e}")
             return f"语音文件不存在：{name}"
