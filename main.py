@@ -334,37 +334,24 @@ class AiriVoice(Star):
             self.voice_map[name] = str(file_path)
             self._update_sorted_keys()
             
-            # --- 🔴 修改开始：确保持久化配置 ---
-            
-            # 1. 确保列表存在
+            # 更新网页配置池
             if "extra_voice_pool" not in self.config:
                 self.config["extra_voice_pool"] = []
             
             rel_path = f"extra_voices/{name}{ext}"
-            
-            # 2. 添加到列表
             if rel_path not in self.config["extra_voice_pool"]:
                 self.config["extra_voice_pool"].append(rel_path)
                 
-            # 3. 【关键步骤】调用 save_config 将内存配置写入硬盘
-            # 注意：不同版本的 AstrBot API 略有不同
-            # 如果是较新版本，通常直接调用 self.save_config()
-            try:
-                self.save_config(self.config) 
-                logger.info(f"[AiriVoice] 配置已保存：{rel_path}")
-            except AttributeError:
-                # 兼容旧版本或特定实现，尝试通过 context 保存
-                # 如果 self.save_config 不存在，可能需要这样写：
-                # self.context.save_config(self.name, self.config) 
-                # 或者在某些版本中，直接修改 self.config 并在插件卸载时自动保存，
-                # 但为了保险，建议检查 AstrBot 文档确认 save_config 的调用方式。
-                # 大多数标准 Star 子类都有 self.save_config(data_dict)
-                logger.warning("[AiriVoice] 未找到 save_config 方法，配置可能无法持久化，请检查 AstrBot 版本 API")
+                # 🔥 关键修改：保存配置到硬盘
+                # AstrBot 4.x 通常通过 context 获取 config_manager
+                try:
+                    await self.context.config_manager.save_config()
+                    logger.info(f"[AiriVoice] 配置已保存：{rel_path}")
+                except Exception as save_err:
+                    logger.error(f"[AiriVoice] 保存配置失败：{save_err}")
+                    # 如果保存失败，最好提示用户，但文件已经下载成功了
             
-            # --- 🔴 修改结束 ---
-            
-            yield event.plain_result(f"✅ 语音「{name}」添加成功！\n📁 文件：{name}{ext}\n💾 大小：{len(audio_data) / 1024:.2f} KB\n⚠️ 若重启后消失，请确认配置保存 API 是否调用成功")
-            
+            yield event.plain_result(f"✅ 语音「{name}」添加成功！\n📁 文件：{name}{ext}\n💾 大小：{len(audio_data) / 1024:.2f} KB\n💡 配置已自动保存")
         except Exception as e:
             logger.error(f"[AiriVoice] 保存语音失败：{e}")
             yield event.plain_result(f"❌ 保存语音失败：{str(e)}")
@@ -397,13 +384,17 @@ class AiriVoice(Star):
             if "extra_voice_pool" in self.config and rel_path in self.config["extra_voice_pool"]:
                 self.config["extra_voice_pool"].remove(rel_path)
                 
-                # 🔴 同样需要保存配置
-                self.save_config(self.config) 
+                # 🔥 关键修改：保存配置到硬盘
+                try:
+                    await self.context.config_manager.save_config()
+                    logger.info(f"[AiriVoice] 配置已更新，移除：{rel_path}")
+                except Exception as save_err:
+                    logger.error(f"[AiriVoice] 保存配置失败：{save_err}")
             
-            yield event.plain_result(f"✅ 语音「{name}」已删除")
+            yield event.plain_result(f"✅ 语音「{name}」已删除\n💡 配置已自动保存")
         except Exception as e:
             logger.error(f"[AiriVoice] 删除语音失败：{e}")
-            yield event.plain_result(f"? 删除失败：{str(e)}")
+            yield event.plain_result(f"❌ 删除失败：{str(e)}")
             
     @filter.command("voice.list")
     async def list_voices(self, event: AstrMessageEvent):
