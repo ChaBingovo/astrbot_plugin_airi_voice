@@ -359,7 +359,9 @@ class AiriVoice(Star):
             
             yield event.plain_result(f"✅ 语音「{name}」已删除")
         except Exception as e:
-
+            logger.error(f"[AiriVoice] 删除语音失败：{e}")
+            yield event.plain_result(f"? 删除失败：{str(e)}")
+            
     @filter.command("voice.list")
     async def list_voices(self, event: AstrMessageEvent):
         """列出所有语音关键词"""
