@@ -184,6 +184,72 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
             return f"语音发送失败：{type(e).__name__}"
 
 
+@dataclass
+class AiriRandomVoiceTool(FunctionTool[AstrAgentContext]):
+    """随机发送一条语音，用于用户说「随机播放语音」「随机语音」等时调用。"""
+
+    name: str = "airi_random_voice"
+    description: str = (
+        "随机发送一条语音。当用户要求「随机播放语音」「随机语音」「随机发条语音」等时调用此工具，无需参数。"
+    )
+    parameters: dict = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
+    )
+    plugin: Any = None
+
+    async def call(
+        self, context: ContextWrapper[AstrAgentContext], **kwargs
+    ) -> ToolExecResult:
+        if not self.plugin or getattr(self.plugin, "trigger_mode", None) != "llm":
+            return "当前未开启 LLM 触发模式，本工具暂不可用。"
+
+        if not self.plugin.voice_map:
+            return "当前没有可用语音。"
+
+        try:
+            event = context.context.event
+            agent_ctx = context.context.context
+        except Exception:
+            event = None
+            agent_ctx = None
+
+        if agent_ctx is None or event is None:
+            return "无法获取当前会话上下文，未能发送随机语音。"
+
+        max_voice = getattr(self.plugin, "llm_max_voice", 0)
+        run_key = id(event)
+        if max_voice > 0:
+            sent_count = getattr(self.plugin, "_llm_voice_sent_count", {})
+            if sent_count.get(run_key, 0) >= max_voice:
+                return f"本条消息 LLM 语音发送已达上限（{max_voice} 条），无法再发送。"
+
+        name = random.choice(list(self.plugin.voice_map.keys()))
+        path = self.plugin.voice_map[name]
+
+        try:
+            await agent_ctx.send_message(
+                event.unified_msg_origin,
+                MessageChain([Record.fromFileSystem(path)]),
+            )
+            if max_voice > 0:
+                sc = self.plugin._llm_voice_sent_count
+                if run_key not in sc and len(sc) >= 100:
+                    sc.pop(next(iter(sc)))
+                sc[run_key] = sc.get(run_key, 0) + 1
+            logger.debug(f"[AiriVoice] LLM 工具随机发送语音：'{name}'")
+            return ""
+        except FileNotFoundError as e:
+            logger.error(f"[AiriVoice] 随机语音文件不存在 '{name}': {e}")
+            return f"语音文件不存在：{name}"
+        except Exception as e:
+            logger.error(f"[AiriVoice] 随机语音发送失败 '{name}': {e}")
+            return f"语音发送失败：{type(e).__name__}"
+
+
 @register(
     "airi_voice",
     "lidure",
@@ -272,6 +338,7 @@ class AiriVoice(Star):
             else:
                 llm_tools.append(AiriSearchVoicesTool(plugin=self))
             llm_tools.append(AiriSendVoiceTool(plugin=self))
+            llm_tools.append(AiriRandomVoiceTool(plugin=self))
 
             try:
                 # AstrBot >= v4.5.1
@@ -491,11 +558,11 @@ class AiriVoice(Star):
             self._update_sorted_keys()
             self.last_pool_len = current_pool_len
 
-        # 随机语音：支持「随机发条语音 / 随机语音」全局随机，
+        # 随机语音：支持「随机发条语音 / 随机语音 / 随机播放语音」等全局随机，
         # 以及「随机XX」根据关键词随机选择匹配的语音
         if text.startswith("随机") and self.voice_map:
-            # 全局随机
-            if text in {"随机发条语音", "随机语音"}:
+            # 全局随机（含常见说法，避免「随机播放语音」被当成关键词「播放语音」）
+            if text in {"随机发条语音", "随机语音", "随机播放语音", "随机播放"}:
                 name = random.choice(list(self.voice_map.keys()))
                 matched_path = self.voice_map.get(name)
                 if matched_path:
