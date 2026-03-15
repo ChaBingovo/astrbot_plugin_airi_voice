@@ -24,9 +24,9 @@ PAGE_SIZE = 15
 _current_airi_voice_plugin: Optional[Any] = None
 
 
-def _resolve_airi_plugin_for_tool(self_plugin: Any) -> Optional[Any]:
-    """解析用于工具校验与数据的插件：优先使用当前已加载的插件，保证与配置一致。"""
-    return _current_airi_voice_plugin or self_plugin
+def _resolve_airi_plugin_for_tool() -> Optional[Any]:
+    """仅使用当前已加载的插件做校验与数据，绝不使用工具上的 self.plugin，避免框架传入旧实例在 direct 下仍可用。"""
+    return _current_airi_voice_plugin
 
 
 @dataclass
@@ -47,8 +47,8 @@ class AiriListAllVoicesTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        # 使用当前已加载的插件做校验，避免框架旧注册工具在 direct/prefix 下仍可用
-        plugin = _resolve_airi_plugin_for_tool(self.plugin)
+        # 仅以当前已加载的插件做校验，不使用 self.plugin，避免框架传入旧 llm 实例
+        plugin = _resolve_airi_plugin_for_tool()
         if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
         if getattr(plugin, "trigger_mode", None) != "llm":
@@ -88,7 +88,7 @@ class AiriSearchVoicesTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        plugin = _resolve_airi_plugin_for_tool(self.plugin)
+        plugin = _resolve_airi_plugin_for_tool()
         if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
         if getattr(plugin, "trigger_mode", None) != "llm":
@@ -144,7 +144,7 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        plugin = _resolve_airi_plugin_for_tool(self.plugin)
+        plugin = _resolve_airi_plugin_for_tool()
         if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
         if getattr(plugin, "trigger_mode", None) != "llm":
@@ -228,7 +228,7 @@ class AiriRandomVoiceTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        plugin = _resolve_airi_plugin_for_tool(self.plugin)
+        plugin = _resolve_airi_plugin_for_tool()
         if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
         if getattr(plugin, "trigger_mode", None) != "llm":
