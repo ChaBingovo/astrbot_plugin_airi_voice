@@ -188,7 +188,7 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
     "airi_voice",
     "lidure",
     "输入关键词发送对应语音",
-    "2.2",
+    "2.3",
     "https://github.com/Lidure/astrbot_plugin_airi_voice",
 )
 class AiriVoice(Star):
