@@ -143,24 +143,25 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
         if not path:
             return f"语音「{name}」不存在，请先使用列出/搜索工具确认可用名称。"
 
-        # 单次回复内语音条数限制（同一 context 为同一回合）
-        max_voice = getattr(self.plugin, "llm_max_voice", 0)
-        if max_voice > 0:
-            agent_ctx_obj = getattr(context.context, "context", None)
-            sent = getattr(agent_ctx_obj, "_airi_voice_sent", 0)
-            if sent >= max_voice:
-                return f"本回合 LLM 语音发送已达上限（{max_voice} 条），无法再发送。"
-
-        # 在 Tool 内部直接发送语音消息（对用户来说仍然是一次回复中的语音）
+        # 先取 event，用于按「本条消息」计数（每条用户消息对应新 event，计数独立）
         try:
-            agent_ctx = context.context.context
             event = context.context.event
+            agent_ctx = context.context.context
         except Exception:
-            agent_ctx = None
             event = None
+            agent_ctx = None
 
         if agent_ctx is None or event is None:
             return f"无法获取当前会话上下文，未能发送语音「{name}」。"
+
+        # 每条消息的语音条数限制（用 id(event) 区分不同用户消息）
+        max_voice = getattr(self.plugin, "llm_max_voice", 0)
+        run_key = id(event)
+        if max_voice > 0:
+            sent_count = getattr(self.plugin, "_llm_voice_sent_count", {})
+            sent = sent_count.get(run_key, 0)
+            if sent >= max_voice:
+                return f"本条消息 LLM 语音发送已达上限（{max_voice} 条），无法再发送。"
 
         try:
             await agent_ctx.send_message(
@@ -168,11 +169,10 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
                 MessageChain([Record.fromFileSystem(path)]),
             )
             if max_voice > 0:
-                setattr(
-                    agent_ctx,
-                    "_airi_voice_sent",
-                    getattr(agent_ctx, "_airi_voice_sent", 0) + 1,
-                )
+                sc = self.plugin._llm_voice_sent_count
+                if run_key not in sc and len(sc) >= 100:
+                    sc.pop(next(iter(sc)))
+                sc[run_key] = sc.get(run_key, 0) + 1
             logger.debug(f"[AiriVoice] LLM 工具发送语音：'{name}' → {path}")
             # 不再给用户增加额外文字，只让 LLM 负责一句话内容
             return ""
@@ -260,7 +260,10 @@ class AiriVoice(Star):
         self._update_sorted_keys()
         
         self.last_pool_len = len(self.config.get("extra_voice_pool", []))
-        
+
+        # LLM 每条消息语音发送计数（key=id(event)，保证按消息重置）
+        self._llm_voice_sent_count: Dict[int, int] = {}
+
         # 仅在触发模式为 llm 时，注册供 LLM 使用的语音相关工具
         if self.trigger_mode == "llm":
             llm_tools = []
