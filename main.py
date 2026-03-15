@@ -19,6 +19,15 @@ from astrbot.core.astr_agent_context import AstrAgentContext
 ALLOWED_EXT = {".mp3", ".wav", ".ogg", ".silk", ".amr"}
 PAGE_SIZE = 15
 
+# 当前已加载的 AiriVoice 插件实例（每次插件加载时更新）。工具执行时用此做模式校验，
+# 避免框架使用旧注册的工具实例导致在 direct/prefix 下仍能调用语音工具。
+_current_airi_voice_plugin: Optional[Any] = None
+
+
+def _resolve_airi_plugin_for_tool(self_plugin: Any) -> Optional[Any]:
+    """解析用于工具校验与数据的插件：优先使用当前已加载的插件，保证与配置一致。"""
+    return _current_airi_voice_plugin or self_plugin
+
 
 @dataclass
 class AiriListAllVoicesTool(FunctionTool[AstrAgentContext]):
@@ -38,18 +47,19 @@ class AiriListAllVoicesTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        # 仅当 trigger_mode 为 llm 且本插件已注册过 LLM 工具时可用；direct/prefix 下不可用
-        if not self.plugin:
+        # 使用当前已加载的插件做校验，避免框架旧注册工具在 direct/prefix 下仍可用
+        plugin = _resolve_airi_plugin_for_tool(self.plugin)
+        if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
-        if getattr(self.plugin, "trigger_mode", None) != "llm":
+        if getattr(plugin, "trigger_mode", None) != "llm":
             return "当前为直接关键词/前缀触发模式，语音列表仅支持在 LLM 触发模式下使用。"
-        if not getattr(self.plugin, "_llm_tools_registered", False):
+        if not getattr(plugin, "_llm_tools_registered", False):
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
 
-        if not self.plugin.voice_map:
+        if not plugin.voice_map:
             return "当前没有可用语音。"
 
-        names = sorted(self.plugin.voice_map.keys())
+        names = sorted(plugin.voice_map.keys())
         return "当前可用语音名称列表：\n" + "\n".join(names)
 
 
@@ -78,14 +88,15 @@ class AiriSearchVoicesTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        if not self.plugin:
+        plugin = _resolve_airi_plugin_for_tool(self.plugin)
+        if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
-        if getattr(self.plugin, "trigger_mode", None) != "llm":
+        if getattr(plugin, "trigger_mode", None) != "llm":
             return "当前为直接关键词/前缀触发模式，语音搜索仅支持在 LLM 触发模式下使用。"
-        if not getattr(self.plugin, "_llm_tools_registered", False):
+        if not getattr(plugin, "_llm_tools_registered", False):
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
 
-        if not self.plugin.voice_map:
+        if not plugin.voice_map:
             return "当前没有可用语音。"
 
         keyword = (kwargs.get("keyword") or "").strip()
@@ -95,7 +106,7 @@ class AiriSearchVoicesTool(FunctionTool[AstrAgentContext]):
         keyword_lower = keyword.lower()
         matched = [
             name
-            for name in self.plugin.voice_map.keys()
+            for name in plugin.voice_map.keys()
             if keyword_lower in name.lower()
         ]
 
@@ -133,14 +144,15 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        if not self.plugin:
+        plugin = _resolve_airi_plugin_for_tool(self.plugin)
+        if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
-        if getattr(self.plugin, "trigger_mode", None) != "llm":
+        if getattr(plugin, "trigger_mode", None) != "llm":
             return "当前为直接关键词/前缀触发模式，发送语音仅支持在 LLM 触发模式下使用。"
-        if not getattr(self.plugin, "_llm_tools_registered", False):
+        if not getattr(plugin, "_llm_tools_registered", False):
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
 
-        if not self.plugin.voice_map:
+        if not plugin.voice_map:
             return "当前没有可用语音。"
 
         name = (kwargs.get("name") or "").strip()
@@ -149,9 +161,9 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
 
         # 文件名一般无空格，LLM 常多带空格，查表时无脑去掉所有空格
         lookup_key = "".join(name.split())
-        path = self.plugin.voice_map.get(lookup_key)
+        path = plugin.voice_map.get(lookup_key)
         if not path:
-            path = self.plugin.voice_map.get(name)
+            path = plugin.voice_map.get(name)
         if not path:
             return f"语音「{name}」不存在，请先使用列出/搜索工具确认可用名称。"
 
@@ -167,10 +179,10 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
             return f"无法获取当前会话上下文，未能发送语音「{name}」。"
 
         # 每条消息的语音条数限制（用 id(event) 区分不同用户消息）
-        max_voice = getattr(self.plugin, "llm_max_voice", 0)
+        max_voice = getattr(plugin, "llm_max_voice", 0)
         run_key = id(event)
         if max_voice > 0:
-            sent_count = getattr(self.plugin, "_llm_voice_sent_count", {})
+            sent_count = getattr(plugin, "_llm_voice_sent_count", {})
             sent = sent_count.get(run_key, 0)
             if sent >= max_voice:
                 return f"本条消息 LLM 语音发送已达上限（{max_voice} 条），无法再发送。"
@@ -181,7 +193,7 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
                 MessageChain([Record.fromFileSystem(path)]),
             )
             if max_voice > 0:
-                sc = self.plugin._llm_voice_sent_count
+                sc = plugin._llm_voice_sent_count
                 if run_key not in sc and len(sc) >= 100:
                     sc.pop(next(iter(sc)))
                 sc[run_key] = sc.get(run_key, 0) + 1
@@ -216,14 +228,15 @@ class AiriRandomVoiceTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        if not self.plugin:
+        plugin = _resolve_airi_plugin_for_tool(self.plugin)
+        if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
-        if getattr(self.plugin, "trigger_mode", None) != "llm":
+        if getattr(plugin, "trigger_mode", None) != "llm":
             return "当前为直接关键词/前缀触发模式，随机语音仅支持在 LLM 触发模式下使用。"
-        if not getattr(self.plugin, "_llm_tools_registered", False):
+        if not getattr(plugin, "_llm_tools_registered", False):
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
 
-        if not self.plugin.voice_map:
+        if not plugin.voice_map:
             return "当前没有可用语音。"
 
         try:
@@ -236,15 +249,15 @@ class AiriRandomVoiceTool(FunctionTool[AstrAgentContext]):
         if agent_ctx is None or event is None:
             return "无法获取当前会话上下文，未能发送随机语音。"
 
-        max_voice = getattr(self.plugin, "llm_max_voice", 0)
+        max_voice = getattr(plugin, "llm_max_voice", 0)
         run_key = id(event)
         if max_voice > 0:
-            sent_count = getattr(self.plugin, "_llm_voice_sent_count", {})
+            sent_count = getattr(plugin, "_llm_voice_sent_count", {})
             if sent_count.get(run_key, 0) >= max_voice:
                 return f"本条消息 LLM 语音发送已达上限（{max_voice} 条），无法再发送。"
 
-        name = random.choice(list(self.plugin.voice_map.keys()))
-        path = self.plugin.voice_map[name]
+        name = random.choice(list(plugin.voice_map.keys()))
+        path = plugin.voice_map[name]
 
         try:
             await agent_ctx.send_message(
@@ -252,7 +265,7 @@ class AiriRandomVoiceTool(FunctionTool[AstrAgentContext]):
                 MessageChain([Record.fromFileSystem(path)]),
             )
             if max_voice > 0:
-                sc = self.plugin._llm_voice_sent_count
+                sc = plugin._llm_voice_sent_count
                 if run_key not in sc and len(sc) >= 100:
                     sc.pop(next(iter(sc)))
                 sc[run_key] = sc.get(run_key, 0) + 1
@@ -366,7 +379,11 @@ class AiriVoice(Star):
                 )
             except Exception as e:
                 logger.error(f"[AiriVoice] 注册 LLM 工具失败：{e}")
-        
+
+        # 供工具执行时做模式校验：始终使用当前已加载的插件实例，避免框架旧注册工具在 direct 下仍可用
+        global _current_airi_voice_plugin
+        _current_airi_voice_plugin = self
+
         logger.info(f"[AiriVoice] 初始化完成，共 {len(self.voice_map)} 个语音，权限模式：{self.admin_mode}")
 
     def _get_user_id(self, event: AstrMessageEvent) -> Optional[str]:
