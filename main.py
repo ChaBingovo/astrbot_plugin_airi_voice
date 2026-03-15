@@ -143,6 +143,14 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
         if not path:
             return f"语音「{name}」不存在，请先使用列出/搜索工具确认可用名称。"
 
+        # 单次回复内语音条数限制（同一 context 为同一回合）
+        max_voice = getattr(self.plugin, "llm_max_voice", 0)
+        if max_voice > 0:
+            agent_ctx_obj = getattr(context.context, "context", None)
+            sent = getattr(agent_ctx_obj, "_airi_voice_sent", 0)
+            if sent >= max_voice:
+                return f"本回合 LLM 语音发送已达上限（{max_voice} 条），无法再发送。"
+
         # 在 Tool 内部直接发送语音消息（对用户来说仍然是一次回复中的语音）
         try:
             agent_ctx = context.context.context
@@ -159,6 +167,12 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
                 event.unified_msg_origin,
                 MessageChain([Record.fromFileSystem(path)]),
             )
+            if max_voice > 0:
+                setattr(
+                    agent_ctx,
+                    "_airi_voice_sent",
+                    getattr(agent_ctx, "_airi_voice_sent", 0) + 1,
+                )
             logger.debug(f"[AiriVoice] LLM 工具发送语音：'{name}' → {path}")
             # 不再给用户增加额外文字，只让 LLM 负责一句话内容
             return ""
@@ -228,6 +242,12 @@ class AiriVoice(Star):
                 f"[AiriVoice] 无效 llm_select_mode，强制使用 list"
             )
             self.llm_select_mode = "list"
+
+        # LLM 单次回复最多发送语音条数，0 表示不限制
+        try:
+            self.llm_max_voice = max(0, int(self.config.get("llm_max_voice", 5)))
+        except (TypeError, ValueError):
+            self.llm_max_voice = 5
         
         # 语音映射
         self.voice_map: Dict[str, str] = {}

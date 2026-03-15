@@ -31,5 +31,11 @@
    "hint": "list: 先列出全部语音供 LLM 选择；keyword: LLM 根据用户给出的关键词筛选语音",
    "default": "list",
    "options": ["list", "keyword"]
+  },
+  "llm_max_voice": {
+   "description": "LLM 单次回复最多发送语音条数",
+   "type": "int",
+   "hint": "单次回复中 LLM 通过 airi_send_voice 最多可发送的语音条数，设为 0 表示不限制",
+   "default": 5
   }
 }
