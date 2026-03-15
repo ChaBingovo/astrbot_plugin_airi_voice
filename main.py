@@ -38,8 +38,12 @@ class AiriListAllVoicesTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        # 仅在插件触发模式为 llm 时生效，其他模式下工具只返回给 LLM 的提示文本
-        if not self.plugin or getattr(self.plugin, "trigger_mode", None) != "llm":
+        # 仅当 trigger_mode 为 llm 且本插件已注册过 LLM 工具时可用；direct/prefix 下不可用
+        if not self.plugin:
+            return "当前未开启 LLM 触发模式，本工具暂不可用。"
+        if getattr(self.plugin, "trigger_mode", None) != "llm":
+            return "当前为直接关键词/前缀触发模式，语音列表仅支持在 LLM 触发模式下使用。"
+        if not getattr(self.plugin, "_llm_tools_registered", False):
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
 
         if not self.plugin.voice_map:
@@ -74,7 +78,11 @@ class AiriSearchVoicesTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        if not self.plugin or getattr(self.plugin, "trigger_mode", None) != "llm":
+        if not self.plugin:
+            return "当前未开启 LLM 触发模式，本工具暂不可用。"
+        if getattr(self.plugin, "trigger_mode", None) != "llm":
+            return "当前为直接关键词/前缀触发模式，语音搜索仅支持在 LLM 触发模式下使用。"
+        if not getattr(self.plugin, "_llm_tools_registered", False):
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
 
         if not self.plugin.voice_map:
@@ -125,7 +133,11 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        if not self.plugin or getattr(self.plugin, "trigger_mode", None) != "llm":
+        if not self.plugin:
+            return "当前未开启 LLM 触发模式，本工具暂不可用。"
+        if getattr(self.plugin, "trigger_mode", None) != "llm":
+            return "当前为直接关键词/前缀触发模式，发送语音仅支持在 LLM 触发模式下使用。"
+        if not getattr(self.plugin, "_llm_tools_registered", False):
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
 
         if not self.plugin.voice_map:
@@ -204,7 +216,11 @@ class AiriRandomVoiceTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        if not self.plugin or getattr(self.plugin, "trigger_mode", None) != "llm":
+        if not self.plugin:
+            return "当前未开启 LLM 触发模式，本工具暂不可用。"
+        if getattr(self.plugin, "trigger_mode", None) != "llm":
+            return "当前为直接关键词/前缀触发模式，随机语音仅支持在 LLM 触发模式下使用。"
+        if not getattr(self.plugin, "_llm_tools_registered", False):
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
 
         if not self.plugin.voice_map:
@@ -330,7 +346,8 @@ class AiriVoice(Star):
         # LLM 每条消息语音发送计数（key=id(event)，保证按消息重置）
         self._llm_voice_sent_count: Dict[int, int] = {}
 
-        # 仅在触发模式为 llm 时，注册供 LLM 使用的语音相关工具
+        # 仅在触发模式为 llm 时注册供 LLM 使用的语音工具；direct/prefix 下不注册，且工具内会再次校验
+        self._llm_tools_registered = False
         if self.trigger_mode == "llm":
             llm_tools = []
             if self.llm_select_mode == "list":
@@ -343,6 +360,7 @@ class AiriVoice(Star):
             try:
                 # AstrBot >= v4.5.1
                 self.context.add_llm_tools(*llm_tools)
+                self._llm_tools_registered = True
                 logger.info(
                     f"[AiriVoice] 已为 LLM 注册 {len(llm_tools)} 个语音工具，模式：{self.llm_select_mode}"
                 )
@@ -545,9 +563,13 @@ class AiriVoice(Star):
 
     @filter.regex(r"^\s*.+\s*$")
     async def voice_handler(self, event: AstrMessageEvent):
-        """语音触发处理器"""
+        """语音触发处理器：direct/prefix 下按关键词或前缀触发；llm 模式下仅由 LLM 工具发送语音，本处理器不响应"""
         text = (event.message_str or "").strip()
         if not text:
+            return
+
+        # llm 模式：不处理关键词/前缀，仅 LLM 工具可发送语音
+        if self.trigger_mode == "llm":
             return
 
         # 自动检测配置变化（网页上传后自动刷新）
@@ -788,8 +810,9 @@ class AiriVoice(Star):
 5. 直接输入关键词即可发送语音
 
 【触发模式】
-🔹 direct: 直接输入关键词触发
-🔹 prefix: 使用 #voice 关键词 触发
+🔹 direct: 仅用户直接输入关键词触发，LLM 不可调用语音
+🔹 prefix: 仅用户输入 #voice 关键词 触发，LLM 不可调用
+🔹 llm: 仅由大模型通过工具调用语音，用户输入关键词不触发
 
 【命令】
 {chr(10).join(commands)}"""
