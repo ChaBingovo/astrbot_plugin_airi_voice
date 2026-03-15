@@ -18,6 +18,10 @@
   - `airi_send_voice` 查表时自动去除名称中全部空格再匹配。  
   - 文件名通常无空格，LLM 常多带空格，避免因此报「语音不存在」。
 
+- **direct/prefix 下禁止 LLM 调用语音工具**  
+  - 工具执行时优先从运行时 context（event.bot → star_manager）解析当前插件实例，避免重载插件后框架仍调用旧工具导致 direct 模式下 LLM 仍能列语音、发语音。  
+  - 若修改 trigger_mode（尤其从 llm 改为 direct/prefix）后 LLM 仍能调用语音工具，请**完整重启 AstrBot 进程**（而非仅重载插件）。
+
 ---
 ## [2.2] - 2026-03-14
 

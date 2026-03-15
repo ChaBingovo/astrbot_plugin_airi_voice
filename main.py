@@ -23,9 +23,49 @@ PAGE_SIZE = 15
 # 避免框架使用旧注册的工具实例导致在 direct/prefix 下仍能调用语音工具。
 _current_airi_voice_plugin: Optional[Any] = None
 
+# 插件在框架中的注册名，用于从 context 解析当前实例
+_PLUGIN_NAME = "astrbot_plugin_airi_voice"
 
-def _resolve_airi_plugin_for_tool() -> Optional[Any]:
-    """仅使用当前已加载的插件做校验与数据，绝不使用工具上的 self.plugin，避免框架传入旧实例在 direct 下仍可用。"""
+
+def _get_airi_plugin_from_context(
+    context: ContextWrapper[AstrAgentContext],
+) -> Optional[Any]:
+    """从运行时 context 解析当前已加载的 AiriVoice 实例，不依赖工具所在模块命名空间。"""
+    try:
+        event = getattr(context.context, "event", None)
+        if event is None:
+            return None
+        bot = getattr(event, "bot", None)
+        if bot is None:
+            return None
+        star_mgr = getattr(bot, "star_manager", None)
+        if star_mgr is None:
+            return None
+        get_star = getattr(star_mgr, "get_star", None) or getattr(
+            star_mgr, "get_plugin", None
+        )
+        if get_star is None:
+            return None
+        star = get_star(_PLUGIN_NAME)
+        if star is None:
+            return None
+        if not hasattr(star, "trigger_mode") or not hasattr(
+            star, "_llm_tools_registered"
+        ):
+            return None
+        return star
+    except Exception:
+        return None
+
+
+def _resolve_airi_plugin_for_tool(
+    context: Optional[ContextWrapper[AstrAgentContext]] = None,
+) -> Optional[Any]:
+    """优先从 context 解析当前插件（避免重载后旧工具仍用旧模块变量）；否则回退到模块级当前实例。"""
+    if context is not None:
+        plugin = _get_airi_plugin_from_context(context)
+        if plugin is not None:
+            return plugin
     return _current_airi_voice_plugin
 
 
@@ -47,8 +87,8 @@ class AiriListAllVoicesTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        # 仅以当前已加载的插件做校验，不使用 self.plugin，避免框架传入旧 llm 实例
-        plugin = _resolve_airi_plugin_for_tool()
+        # 优先从 context 解析当前插件，避免重载后旧工具仍读旧模块的 _current_airi_voice_plugin
+        plugin = _resolve_airi_plugin_for_tool(context)
         if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
         if getattr(plugin, "trigger_mode", None) != "llm":
@@ -88,7 +128,7 @@ class AiriSearchVoicesTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        plugin = _resolve_airi_plugin_for_tool()
+        plugin = _resolve_airi_plugin_for_tool(context)
         if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
         if getattr(plugin, "trigger_mode", None) != "llm":
@@ -144,7 +184,7 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        plugin = _resolve_airi_plugin_for_tool()
+        plugin = _resolve_airi_plugin_for_tool(context)
         if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
         if getattr(plugin, "trigger_mode", None) != "llm":
@@ -228,7 +268,7 @@ class AiriRandomVoiceTool(FunctionTool[AstrAgentContext]):
     async def call(
         self, context: ContextWrapper[AstrAgentContext], **kwargs
     ) -> ToolExecResult:
-        plugin = _resolve_airi_plugin_for_tool()
+        plugin = _resolve_airi_plugin_for_tool(context)
         if not plugin:
             return "当前未开启 LLM 触发模式，本工具暂不可用。"
         if getattr(plugin, "trigger_mode", None) != "llm":
