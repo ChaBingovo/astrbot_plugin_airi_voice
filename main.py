@@ -135,7 +135,11 @@ class AiriSendVoiceTool(FunctionTool[AstrAgentContext]):
         if not name:
             return "请提供要发送的语音名称。"
 
-        path = self.plugin.voice_map.get(name)
+        # 文件名一般无空格，LLM 常多带空格，查表时无脑去掉所有空格
+        lookup_key = "".join(name.split())
+        path = self.plugin.voice_map.get(lookup_key)
+        if not path:
+            path = self.plugin.voice_map.get(name)
         if not path:
             return f"语音「{name}」不存在，请先使用列出/搜索工具确认可用名称。"
 
