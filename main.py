@@ -23,45 +23,66 @@ PAGE_SIZE = 15
 # 避免框架使用旧注册的工具实例导致在 direct/prefix 下仍能调用语音工具。
 _current_airi_voice_plugin: Optional[Any] = None
 
-# 插件在框架中的注册名，用于从 context 解析当前实例
-_PLUGIN_NAME = "astrbot_plugin_airi_voice"
+# 插件在框架中的注册名，用于从 context 解析当前实例（尝试多种可能命名）
+_PLUGIN_NAMES = ("astrbot_plugin_airi_voice", "airi_voice")
 
 
 def _get_airi_plugin_from_context(
     context: ContextWrapper[AstrAgentContext],
 ) -> Optional[Any]:
     """从运行时 context 解析当前已加载的 AiriVoice 实例，不依赖工具所在模块命名空间。"""
+    star_mgr = None
     try:
+        # 从 event.bot 或 context.context 取 star_manager
         event = getattr(context.context, "event", None)
-        if event is None:
-            return None
-        bot = getattr(event, "bot", None)
-        if bot is None:
-            return None
-        star_mgr = getattr(bot, "star_manager", None)
+        if event is not None:
+            bot = getattr(event, "bot", None)
+            if bot is not None:
+                star_mgr = getattr(bot, "star_manager", None)
+        if star_mgr is None and hasattr(context.context, "star_manager"):
+            star_mgr = getattr(context.context, "star_manager", None)
+        if star_mgr is None and hasattr(context.context, "bot"):
+            bot = getattr(context.context, "bot", None)
+            if bot is not None:
+                star_mgr = getattr(bot, "star_manager", None)
         if star_mgr is None:
             return None
+
+        # 方式一：get_star(name) / get_plugin(name)
         get_star = getattr(star_mgr, "get_star", None) or getattr(
             star_mgr, "get_plugin", None
         )
-        if get_star is None:
-            return None
-        star = get_star(_PLUGIN_NAME)
-        if star is None:
-            return None
-        if not hasattr(star, "trigger_mode") or not hasattr(
-            star, "_llm_tools_registered"
-        ):
-            return None
-        return star
+        if get_star is not None:
+            for name in _PLUGIN_NAMES:
+                try:
+                    star = get_star(name)
+                    if star is not None and hasattr(star, "trigger_mode") and hasattr(
+                        star, "_llm_tools_registered"
+                    ):
+                        return star
+                except Exception:
+                    continue
+
+        # 方式二：stars / _stars 等 dict 结构
+        for attr in ("stars", "_stars", "plugin_stars", "_plugin_stars"):
+            mapping = getattr(star_mgr, attr, None)
+            if not isinstance(mapping, dict):
+                continue
+            for name in _PLUGIN_NAMES:
+                star = mapping.get(name)
+                if star is not None and hasattr(star, "trigger_mode") and hasattr(
+                    star, "_llm_tools_registered"
+                ):
+                    return star
     except Exception:
-        return None
+        pass
+    return None
 
 
 def _resolve_airi_plugin_for_tool(
     context: Optional[ContextWrapper[AstrAgentContext]] = None,
 ) -> Optional[Any]:
-    """优先从 context 解析当前插件（避免重载后旧工具仍用旧模块变量）；否则回退到模块级当前实例。"""
+    """优先从 context 解析当前插件（避免重载后旧工具仍用旧模块变量）；解析不到则回退到模块级当前实例。"""
     if context is not None:
         plugin = _get_airi_plugin_from_context(context)
         if plugin is not None:
